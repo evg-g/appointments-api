@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     app_env: AppEnv = AppEnv.LOCAL
     app_log_level: str = "info"
 
+    # SQLAlchemy/psycopg URL. psycopg (v3) drives both the async app engine (added in
+    # milestone 3) and the synchronous Alembic migrations, so one driver covers both.
+    database_url: str = "postgresql+psycopg://aurora:aurora@localhost:5432/aurora"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
