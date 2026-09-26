@@ -4,7 +4,8 @@
 .DEFAULT_GOAL := help
 UV ?= uv
 
-.PHONY: help setup dev test test-integration lint fix typecheck ci-local clean
+.PHONY: help setup dev test test-integration lint fix typecheck ci-local clean \
+	migrate migrate-down migrate-sql
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -32,6 +33,15 @@ fix: ## Auto-fix lint issues and format
 
 typecheck: ## Static type check (strict)
 	$(UV) run mypy
+
+migrate: ## Apply all migrations to the database in DATABASE_URL
+	$(UV) run alembic upgrade head
+
+migrate-down: ## Roll back the most recent migration
+	$(UV) run alembic downgrade -1
+
+migrate-sql: ## Render the full migration as SQL without a database (offline)
+	$(UV) run alembic upgrade head --sql
 
 ci-local: lint typecheck test ## Run the full PR gate set locally
 
