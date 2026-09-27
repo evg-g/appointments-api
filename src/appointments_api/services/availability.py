@@ -97,6 +97,31 @@ def compute_slots(
     return slots
 
 
+def fits_working_hours(
+    *,
+    start: datetime,
+    end: datetime,
+    clinic_tz: str,
+    working_windows: Sequence[WorkingWindow],
+) -> bool:
+    """True if [start, end) falls entirely inside one working window on its clinic-local day.
+
+    Converting to the clinic timezone before comparing is what makes this correct across DST: the
+    same UTC instant maps to the right local wall-clock time for that date.
+    """
+    tz = ZoneInfo(clinic_tz)
+    local_start = start.astimezone(tz)
+    local_end = end.astimezone(tz)
+    for window in working_windows:
+        if window.weekday != local_start.date().weekday():
+            continue
+        win_start = datetime.combine(local_start.date(), window.start, tzinfo=tz)
+        win_end = datetime.combine(local_start.date(), window.end, tzinfo=tz)
+        if win_start <= local_start and local_end <= win_end:
+            return True
+    return False
+
+
 class BusyPeriodRepository(Protocol):
     """Source of a clinician's already-booked time. Implemented by SQLAlchemy in production and
     by an in-memory fake in unit tests."""

@@ -2,13 +2,32 @@
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import FastAPI
 from pydantic import BaseModel
+from sqlalchemy import text
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from appointments_api import __version__
+from appointments_api.api.errors import register_error_handlers
+from appointments_api.api.routers import (
+    appointments,
+    auth,
+    availability,
+    clinicians,
+    clinics,
+    services,
+    users,
+)
 from appointments_api.config import Settings, get_settings
+from appointments_api.db import create_engine, create_redis, create_sessionmaker
+
+API_PREFIX = "/api/v1"
 
 
 class LivenessResponse(BaseModel):
@@ -19,38 +38,80 @@ class LivenessResponse(BaseModel):
 
 
 class ReadinessResponse(BaseModel):
-    """Result of the readiness probe.
+    """Result of the readiness probe: the process plus each backing dependency."""
 
-    From milestone 3 this also reports the health of the database and Redis. For now the
-    process itself being able to answer is the only dependency.
-    """
-
-    status: Literal["ok"]
-    checks: dict[str, Literal["ok"]]
+    status: Literal["ok", "degraded"]
+    checks: dict[str, str]
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the FastAPI application.
 
-    Accepting ``settings`` makes the app trivially configurable in tests without touching
-    the environment.
+    The database engine, session factory, and Redis client are created here and stored on
+    ``app.state`` so dependencies can reach them. They are created eagerly (no connection is
+    opened until first use), and disposed on shutdown via the lifespan.
     """
     settings = settings or get_settings()
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    redis = create_redis(settings)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            await engine.dispose()
+            await redis.aclose()
+
     app = FastAPI(
         title="Aurora Clinic — appointments-api",
         version=__version__,
         summary="Appointment scheduling and cold-chain monitoring API.",
+        lifespan=lifespan,
     )
+    app.state.settings = settings
+    app.state.engine = engine
+    app.state.sessionmaker = sessionmaker
+    app.state.redis = redis
+
+    register_error_handlers(app)
+
+    @app.middleware("http")
+    async def _request_id(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+        request.state.request_id = request_id
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
 
     @app.get("/health/live", response_model=LivenessResponse, tags=["health"])
     async def health_live() -> LivenessResponse:
         """Liveness: the process is up and can serve requests."""
         return LivenessResponse(status="ok", version=__version__)
 
-    @app.get("/health/ready", response_model=ReadinessResponse, tags=["health"])
-    async def health_ready() -> ReadinessResponse:
-        """Readiness: the process and its dependencies are ready for traffic."""
-        return ReadinessResponse(status="ok", checks={"process": "ok"})
+    @app.get("/health/ready", tags=["health"])
+    async def health_ready() -> JSONResponse:
+        """Readiness: the process and its dependencies (DB, Redis) are ready for traffic."""
+        checks = {"process": "ok"}
+        try:
+            async with sessionmaker() as session:
+                await session.execute(text("SELECT 1"))
+            checks["database"] = "ok"
+        except Exception:
+            checks["database"] = "error"
+        try:
+            await redis.ping()
+            checks["redis"] = "ok"
+        except Exception:
+            checks["redis"] = "error"
+
+        ready = all(value == "ok" for value in checks.values())
+        body = ReadinessResponse(status="ok" if ready else "degraded", checks=checks)
+        return JSONResponse(status_code=200 if ready else 503, content=body.model_dump())
+
+    for module in (auth, users, clinics, clinicians, services, availability, appointments):
+        app.include_router(module.router, prefix=API_PREFIX)
 
     return app
 

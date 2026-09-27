@@ -31,3 +31,10 @@ class CancellationWindowError(DomainError):
         super().__init__(
             f"Cancellation is only allowed more than {cutoff_hours}h before the appointment."
         )
+
+
+class OutsideWorkingHoursError(DomainError):
+    """The requested time is not inside the clinician's working hours (maps to 422)."""
+
+    def __init__(self) -> None:
+        super().__init__("The requested time is outside the clinician's working hours.")
