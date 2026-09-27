@@ -27,9 +27,21 @@ class Settings(BaseSettings):
     app_env: AppEnv = AppEnv.LOCAL
     app_log_level: str = "info"
 
-    # SQLAlchemy/psycopg URL. psycopg (v3) drives both the async app engine (added in
-    # milestone 3) and the synchronous Alembic migrations, so one driver covers both.
+    # SQLAlchemy/psycopg URL. psycopg (v3) drives both the async app engine and the
+    # synchronous Alembic migrations, so one driver covers both.
     database_url: str = "postgresql+psycopg://aurora:aurora@localhost:5432/aurora"
+
+    # Redis backs refresh-token rotation/reuse detection (and, from milestone 4, idempotency
+    # keys and rate limiting).
+    redis_url: str = "redis://localhost:6379/0"
+
+    # Auth. The default secret is for local/CI only; production must override it via the
+    # environment. Access tokens are short-lived; refresh tokens are long-lived but single-use
+    # (rotated on every refresh, with reuse detection).
+    jwt_secret: str = "dev-only-insecure-change-me"
+    jwt_algorithm: str = "HS256"
+    access_token_ttl_seconds: int = 15 * 60  # 15 minutes
+    refresh_token_ttl_seconds: int = 14 * 24 * 60 * 60  # 14 days
 
 
 @lru_cache(maxsize=1)
