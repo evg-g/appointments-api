@@ -25,7 +25,10 @@ from appointments_api.api.routers import (
     availability,
     clinicians,
     clinics,
+    devices,
     services,
+    streams,
+    telemetry,
     users,
     webhooks,
 )
@@ -153,6 +156,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         availability,
         appointments,
         webhooks,
+        devices,
+        telemetry,
+        streams,
     ):
         app.include_router(module.router, prefix=API_PREFIX)
 

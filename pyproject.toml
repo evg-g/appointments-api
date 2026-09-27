@@ -22,6 +22,10 @@ dependencies = [
     # Runtime HTTP client: main.py + the webhook delivery worker use httpx.AsyncClient. It must be a
     # runtime dependency, not dev-only, or the --no-dev production image fails to import at startup.
     "httpx>=0.27,<0.28",
+    # Milestone 10 telemetry: jsonschema validates every inbound message against the vendored
+    # telemetry contract; aiomqtt is the async MQTT client the ingestion worker subscribes with.
+    "jsonschema>=4.23,<5",
+    "aiomqtt>=2.3,<3",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +51,8 @@ dev = [
     "yamllint>=1.35,<2",
     "locust>=2.31,<3",
     "pip-audit>=2.7,<3",
+    # Milestone 10: type stubs for jsonschema so mypy --strict stays clean.
+    "types-jsonschema>=4.23,<5",
 ]
 
 [build-system]

@@ -312,6 +312,339 @@
         "title": "ClinicianOut",
         "type": "object"
       },
+      "ContractReadingIn": {
+        "additionalProperties": false,
+        "description": "The inner reading, matching the vendored telemetry contract's ``reading`` object.\n\n``extra=\"forbid\"`` mirrors the schema's ``additionalProperties: false`` so the OpenAPI model and\nthe vendored contract accept exactly the same shape (a contract test proves it).",
+        "properties": {
+          "battery_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Battery Pct"
+          },
+          "humidity_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Humidity Pct"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "raw_humidity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Humidity"
+          },
+          "raw_temperature": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Temperature"
+          },
+          "temperature_c": {
+            "title": "Temperature C",
+            "type": "number"
+          },
+          "v": {
+            "default": 2,
+            "title": "V",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "measured_at",
+          "temperature_c"
+        ],
+        "title": "ContractReadingIn",
+        "type": "object"
+      },
+      "DeviceCreate": {
+        "properties": {
+          "clinic_id": {
+            "format": "uuid",
+            "title": "Clinic Id",
+            "type": "string"
+          },
+          "firmware_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Firmware Version",
+            "type": "string"
+          },
+          "hardware_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Hardware Version",
+            "type": "string"
+          },
+          "location_label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Location Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clinic_id",
+          "location_label",
+          "hardware_version",
+          "firmware_version"
+        ],
+        "title": "DeviceCreate",
+        "type": "object"
+      },
+      "DeviceCredentialOut": {
+        "description": "Returned once at provisioning and once on each rotation — the only time the plaintext secret\nis ever exposed. The device stores it; the server keeps only its Argon2 hash.",
+        "properties": {
+          "device": {
+            "$ref": "#/components/schemas/DeviceOut"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device",
+          "secret"
+        ],
+        "title": "DeviceCredentialOut",
+        "type": "object"
+      },
+      "DeviceHealthOut": {
+        "properties": {
+          "device_id": {
+            "format": "uuid",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "last_battery_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Battery Pct"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "last_temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Temperature C"
+          },
+          "open_excursions": {
+            "title": "Open Excursions",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeviceStatus"
+          }
+        },
+        "required": [
+          "device_id",
+          "status",
+          "last_seen_at",
+          "last_temperature_c",
+          "last_battery_pct",
+          "open_excursions"
+        ],
+        "title": "DeviceHealthOut",
+        "type": "object"
+      },
+      "DeviceOut": {
+        "properties": {
+          "clinic_id": {
+            "format": "uuid",
+            "title": "Clinic Id",
+            "type": "string"
+          },
+          "firmware_version": {
+            "title": "Firmware Version",
+            "type": "string"
+          },
+          "hardware_version": {
+            "title": "Hardware Version",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "location_label": {
+            "title": "Location Label",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeviceStatus"
+          }
+        },
+        "required": [
+          "id",
+          "clinic_id",
+          "location_label",
+          "hardware_version",
+          "firmware_version",
+          "status",
+          "last_seen_at"
+        ],
+        "title": "DeviceOut",
+        "type": "object"
+      },
+      "DeviceStatus": {
+        "description": "Lifecycle of a cold-chain sensor node.\n\n``PROVISIONED``  registered, credentials issued, not yet reporting.\n``ACTIVE``       reporting telemetry.\n``DISABLED``     administratively silenced (credentials rejected, telemetry refused).\n``RETIRED``      decommissioned; kept for historical telemetry, never reactivated.",
+        "enum": [
+          "PROVISIONED",
+          "ACTIVE",
+          "DISABLED",
+          "RETIRED"
+        ],
+        "title": "DeviceStatus",
+        "type": "string"
+      },
+      "ExcursionDirection": {
+        "description": "Which rail of the safe temperature band a breach crossed.\n\nValues match the device's ``logic.excursion.ExcursionDirection`` (lower-case) so the shared\nexcursion fixtures compare byte-for-byte across the two implementations.",
+        "enum": [
+          "low",
+          "high"
+        ],
+        "title": "ExcursionDirection",
+        "type": "string"
+      },
+      "ExcursionOut": {
+        "properties": {
+          "acknowledged_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged At"
+          },
+          "acknowledged_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged By"
+          },
+          "device_id": {
+            "format": "uuid",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/ExcursionDirection"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "peak_temperature_c": {
+            "title": "Peak Temperature C",
+            "type": "number"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "device_id",
+          "started_at",
+          "ended_at",
+          "direction",
+          "peak_temperature_c",
+          "acknowledged_by",
+          "acknowledged_at"
+        ],
+        "title": "ExcursionOut",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -447,6 +780,46 @@
           "page"
         ],
         "title": "Page[ClinicianOut]",
+        "type": "object"
+      },
+      "Page_DeviceOut_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceOut"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        },
+        "required": [
+          "data",
+          "page"
+        ],
+        "title": "Page[DeviceOut]",
+        "type": "object"
+      },
+      "Page_ExcursionOut_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ExcursionOut"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        },
+        "required": [
+          "data",
+          "page"
+        ],
+        "title": "Page[ExcursionOut]",
         "type": "object"
       },
       "Page_ServiceOut_": {
@@ -592,6 +965,312 @@
           "end"
         ],
         "title": "SlotOut",
+        "type": "object"
+      },
+      "TelemetryBatchIn": {
+        "description": "The telemetry batch envelope — the same shape the device publishes over MQTT (spec §8).",
+        "properties": {
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          },
+          "readings": {
+            "items": {
+              "$ref": "#/components/schemas/TelemetryEnvelopeItem"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Readings",
+            "type": "array"
+          },
+          "v": {
+            "default": 2,
+            "title": "V",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "readings"
+        ],
+        "title": "TelemetryBatchIn",
+        "type": "object"
+      },
+      "TelemetryBatchItemResult": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "status"
+        ],
+        "title": "TelemetryBatchItemResult",
+        "type": "object"
+      },
+      "TelemetryBatchResult": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "device_id": {
+            "format": "uuid",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "duplicates": {
+            "title": "Duplicates",
+            "type": "integer"
+          },
+          "open_excursions": {
+            "title": "Open Excursions",
+            "type": "integer"
+          },
+          "rejected": {
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/TelemetryBatchItemResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "device_id",
+          "accepted",
+          "duplicates",
+          "rejected",
+          "open_excursions",
+          "results"
+        ],
+        "title": "TelemetryBatchResult",
+        "type": "object"
+      },
+      "TelemetryEnvelopeItem": {
+        "additionalProperties": false,
+        "properties": {
+          "reading": {
+            "$ref": "#/components/schemas/ContractReadingIn"
+          },
+          "sequence": {
+            "minimum": 0.0,
+            "title": "Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sequence",
+          "reading"
+        ],
+        "title": "TelemetryEnvelopeItem",
+        "type": "object"
+      },
+      "ThresholdPolicyCreate": {
+        "properties": {
+          "clinic_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clinic Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "dwell_minutes": {
+            "exclusiveMinimum": 0.0,
+            "title": "Dwell Minutes",
+            "type": "number"
+          },
+          "max_temperature_c": {
+            "title": "Max Temperature C",
+            "type": "number"
+          },
+          "min_temperature_c": {
+            "title": "Min Temperature C",
+            "type": "number"
+          },
+          "recovery_minutes": {
+            "exclusiveMinimum": 0.0,
+            "title": "Recovery Minutes",
+            "type": "number"
+          }
+        },
+        "required": [
+          "min_temperature_c",
+          "max_temperature_c",
+          "dwell_minutes",
+          "recovery_minutes"
+        ],
+        "title": "ThresholdPolicyCreate",
+        "type": "object"
+      },
+      "ThresholdPolicyOut": {
+        "properties": {
+          "clinic_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clinic Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "dwell_minutes": {
+            "title": "Dwell Minutes",
+            "type": "number"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "max_temperature_c": {
+            "title": "Max Temperature C",
+            "type": "number"
+          },
+          "min_temperature_c": {
+            "title": "Min Temperature C",
+            "type": "number"
+          },
+          "recovery_minutes": {
+            "title": "Recovery Minutes",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "device_id",
+          "clinic_id",
+          "min_temperature_c",
+          "max_temperature_c",
+          "dwell_minutes",
+          "recovery_minutes"
+        ],
+        "title": "ThresholdPolicyOut",
+        "type": "object"
+      },
+      "TimeSeriesOut": {
+        "properties": {
+          "agg": {
+            "title": "Agg",
+            "type": "string"
+          },
+          "bucket_seconds": {
+            "title": "Bucket Seconds",
+            "type": "integer"
+          },
+          "device_id": {
+            "format": "uuid",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TimeSeriesPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "device_id",
+          "bucket_seconds",
+          "agg",
+          "points"
+        ],
+        "title": "TimeSeriesOut",
+        "type": "object"
+      },
+      "TimeSeriesPoint": {
+        "properties": {
+          "bucket_start": {
+            "format": "date-time",
+            "title": "Bucket Start",
+            "type": "string"
+          },
+          "sample_count": {
+            "title": "Sample Count",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "bucket_start",
+          "value",
+          "sample_count"
+        ],
+        "title": "TimeSeriesPoint",
         "type": "object"
       },
       "TokenResponse": {
@@ -1915,6 +2594,741 @@
         ]
       }
     },
+    "/api/v1/devices": {
+      "get": {
+        "operationId": "list_devices_api_v1_devices_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "clinic_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Clinic Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_DeviceOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Devices",
+        "tags": [
+          "devices"
+        ]
+      },
+      "post": {
+        "description": "Register a device and issue its telemetry credential (returned once).",
+        "operationId": "provision_device_api_v1_devices_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCredentialOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Provision Device",
+        "tags": [
+          "devices"
+        ]
+      }
+    },
+    "/api/v1/devices/{device_id}": {
+      "get": {
+        "operationId": "get_device_api_v1_devices__device_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Device Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Device",
+        "tags": [
+          "devices"
+        ]
+      }
+    },
+    "/api/v1/devices/{device_id}/credentials:rotate": {
+      "post": {
+        "description": "Rotate a device's telemetry secret. The old secret stops working immediately.",
+        "operationId": "rotate_credentials_api_v1_devices__device_id__credentials_rotate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Device Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCredentialOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rotate Credentials",
+        "tags": [
+          "devices"
+        ]
+      }
+    },
+    "/api/v1/devices/{device_id}/excursions": {
+      "get": {
+        "operationId": "list_device_excursions_api_v1_devices__device_id__excursions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Device Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "open_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Open Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ExcursionOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Device Excursions",
+        "tags": [
+          "devices"
+        ]
+      }
+    },
+    "/api/v1/devices/{device_id}/health": {
+      "get": {
+        "operationId": "device_health_api_v1_devices__device_id__health_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Device Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceHealthOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Device Health",
+        "tags": [
+          "devices"
+        ]
+      }
+    },
+    "/api/v1/devices/{device_id}/telemetry": {
+      "get": {
+        "description": "Downsampled temperature series: ``?bucket=5m&agg=avg|min|max`` with optional start/end.",
+        "operationId": "device_time_series_api_v1_devices__device_id__telemetry_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Device Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bucket",
+            "required": false,
+            "schema": {
+              "default": "5m",
+              "title": "Bucket",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agg",
+            "required": false,
+            "schema": {
+              "default": "avg",
+              "enum": [
+                "avg",
+                "min",
+                "max"
+              ],
+              "title": "Agg",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeSeriesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Device Time Series",
+        "tags": [
+          "devices"
+        ]
+      }
+    },
+    "/api/v1/devices/{device_id}/telemetry:batch": {
+      "post": {
+        "description": "Bulk, idempotent telemetry ingestion with a per-item result array (spec §5).\n\nDuplicate readings (by ``sequence``) are dropped silently, clock-skewed readings are stored and\nflagged, future readings are rejected — each item's fate is reported back individually.",
+        "operationId": "ingest_telemetry_batch_api_v1_devices__device_id__telemetry_batch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Device Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-device-secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Device-Secret"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelemetryBatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryBatchResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ingest Telemetry Batch",
+        "tags": [
+          "devices"
+        ]
+      }
+    },
+    "/api/v1/excursions/{excursion_id}": {
+      "get": {
+        "operationId": "get_excursion_api_v1_excursions__excursion_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "excursion_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Excursion Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExcursionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Excursion",
+        "tags": [
+          "telemetry",
+          "telemetry"
+        ]
+      }
+    },
+    "/api/v1/excursions/{excursion_id}:acknowledge": {
+      "post": {
+        "description": "Record that a staff member has reviewed a cold-chain breach.",
+        "operationId": "acknowledge_excursion_api_v1_excursions__excursion_id__acknowledge_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "excursion_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Excursion Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExcursionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Acknowledge Excursion",
+        "tags": [
+          "telemetry",
+          "telemetry"
+        ]
+      }
+    },
     "/api/v1/services": {
       "get": {
         "operationId": "list_services_api_v1_services_get",
@@ -2115,6 +3529,130 @@
         "summary": "Get Service",
         "tags": [
           "services"
+        ]
+      }
+    },
+    "/api/v1/streams/telemetry": {
+      "get": {
+        "operationId": "telemetry_stream_api_v1_streams_telemetry_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "last_event_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last Event Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Telemetry Stream",
+        "tags": [
+          "streams"
+        ]
+      }
+    },
+    "/api/v1/threshold-policies": {
+      "post": {
+        "description": "Create a device-scoped or clinic-scoped threshold band (exactly one scope).",
+        "operationId": "create_threshold_policy_api_v1_threshold_policies_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThresholdPolicyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThresholdPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Threshold Policy",
+        "tags": [
+          "telemetry",
+          "telemetry"
         ]
       }
     },

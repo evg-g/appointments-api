@@ -27,6 +27,10 @@ from appointments_api.main import create_app
 from appointments_api.security import hash_password
 
 _TABLES = (
+    "telemetry_readings",
+    "excursions",
+    "threshold_policies",
+    "devices",
     "webhook_subscriptions",
     "audit_log",
     "appointments",

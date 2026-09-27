@@ -162,6 +162,11 @@ jobs:
       # 1. Drift: the served schema must equal the committed contracts/openapi.json.
       - name: OpenAPI drift check
         run: uv run pytest tests/contract -q
+      # 1b. Telemetry contract drift: the vendored device-owned schema must match its recorded
+      #     checksums (and, when the device repo is checked out alongside, be byte-identical to its
+      #     source). The OpenAPI gate in reverse — spec §8 rule 4.
+      - name: Telemetry contract drift check
+        run: uv run python scripts/check_telemetry_contract.py
       - name: Publish OpenAPI as a build artifact
         uses: actions/upload-artifact@v4
         with:

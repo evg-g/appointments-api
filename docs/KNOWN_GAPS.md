@@ -29,6 +29,34 @@ that flag, or as its own process (`python -m appointments_api.workers.webhooks`)
 deliveries land in the `webhook:dead` Redis list; there is no admin endpoint or alert to inspect or
 replay them yet.
 
+## Telemetry: excursions are re-derived over the full series each batch (milestone 10)
+
+After every accepted batch the server re-derives excursions from the device's *entire* stored series
+so a late backfill is still evaluated. This is O(series length) per batch — fine for the reference
+scale, but for a device with years of history it should re-derive only a bounded recent window (or
+resume the state machine from the last stored excursion). Deferred; the excursion engine is pure and
+already window-friendly. See ADR 0014.
+
+## Telemetry: SSE uses bearer auth, which `EventSource` cannot send (milestone 10)
+
+`GET /streams/telemetry` authenticates with the normal bearer token, which the browser `EventSource`
+API cannot attach. A production dashboard fronts it with a cookie/session or a short-lived query
+token; wiring that browser transport is a milestone-12 (web) concern.
+
+## Telemetry: HTTP batch reports per-item rejection, not a top-level 422 (milestone 10)
+
+Spec §4 rule 10 says a future reading is "rejected with a 422". The batch endpoint has bulk
+partial-success semantics (a per-item result array), so a single bad row cannot map to one top-level
+HTTP status without failing the whole batch. A future reading is therefore reported as a `rejected`
+item; a wholly malformed request still 422s via schema validation. Documented in `ERROR_CATALOG.md`.
+
+## Telemetry contract: device-side conformance test is milestone 11
+
+The device repo owns `contracts/telemetry.schema.json` + the AsyncAPI document, and this API vendors,
+validates, and drift-gates them. A device-side test proving `logic.batch.build_batches` output
+conforms to its own schema (and wiring the drift gate into the device CI) lands with the device SIL +
+CI/CD in milestone 11.
+
 ## CI/CD: what could not be executed in this environment (milestone 6)
 
 The workflows are complete and statically valid (`actionlint` + `yamllint` pass locally, wired into
