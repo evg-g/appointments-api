@@ -6,6 +6,7 @@ no real waiting — the retry and dead-letter behaviour is exercised determinist
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from random import Random
 
@@ -202,3 +203,38 @@ async def test_dead_letter_after_max_attempts() -> None:
     assert len(sender.calls) == 3  # attempts 0, 1, 2 — then dead-lettered, no 4th send
     assert await deliveries.pending_count() == 0
     assert await deliveries.dead_count() == 1
+
+
+async def test_process_events_once_returns_zero_on_empty_poll() -> None:
+    worker = _worker(
+        events=FakeEventQueue([]),
+        deliveries=FakeDeliveryQueue(),
+        subs=FakeSubscriptionSource([]),
+        sender=ScriptedSender([]),
+        clock=FixedClock(T0),
+    )
+    assert await worker.process_events_once() == 0
+
+
+async def test_run_loop_processes_a_pass_then_stops_when_signalled() -> None:
+    stop = asyncio.Event()
+
+    class StoppingEventQueue(FakeEventQueue):
+        async def next_event(self, timeout_seconds: float) -> WebhookEvent | None:
+            # Let one full pass happen, then ask the loop to stop.
+            stop.set()
+            return await super().next_event(timeout_seconds)
+
+    deliveries = FakeDeliveryQueue()
+    sender = ScriptedSender([])
+    worker = _worker(
+        events=StoppingEventQueue([]),
+        deliveries=deliveries,
+        subs=FakeSubscriptionSource([]),
+        sender=sender,
+        clock=FixedClock(T0),
+    )
+
+    # Completes because the queue sets `stop` during the first pass.
+    await asyncio.wait_for(worker.run(stop), timeout=1.0)
+    assert stop.is_set()

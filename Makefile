@@ -4,8 +4,8 @@
 .DEFAULT_GOAL := help
 UV ?= uv
 
-.PHONY: help setup dev test test-integration lint fix typecheck ci-local clean \
-	migrate migrate-down migrate-sql
+.PHONY: help setup dev test test-integration test-property test-security lint fix typecheck \
+	coverage mutation ci-local clean migrate migrate-down migrate-sql
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -22,6 +22,23 @@ test: ## Run unit tests with coverage
 
 test-integration: ## Run integration tests (needs Docker for testcontainers)
 	$(UV) run pytest tests/integration -q
+
+test-property: ## Property-based tests: hypothesis + Schemathesis (needs Docker)
+	$(UV) run pytest tests/property -q
+
+test-security: ## Security tests: authz matrix, JWT, injection, mass-assignment (needs Docker)
+	$(UV) run pytest tests/security -q
+
+coverage: ## Run all tiers under coverage and enforce the services/+api/ gate (needs Docker)
+	$(UV) run coverage run -m pytest tests/unit tests/integration tests/security tests/property
+	$(UV) run coverage json -o coverage.json
+	$(UV) run coverage report
+	$(UV) run python scripts/check_coverage.py
+
+mutation: ## Mutation-test services/ with the unit suite and enforce the baseline
+	$(UV) run mutmut run
+	$(UV) run mutmut export-cicd-stats
+	$(UV) run python scripts/check_mutation.py
 
 lint: ## Lint and check formatting
 	$(UV) run ruff check .
@@ -43,7 +60,7 @@ migrate-down: ## Roll back the most recent migration
 migrate-sql: ## Render the full migration as SQL without a database (offline)
 	$(UV) run alembic upgrade head --sql
 
-ci-local: lint typecheck test ## Run the full PR gate set locally
+ci-local: lint typecheck coverage ## Run the full PR gate set locally (lint, types, all tiers + coverage gate; needs Docker)
 
 clean: ## Remove caches and build artifacts
 	rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage coverage.xml dist build

@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    # Nightly mutation run (heavier than a per-PR gate; see docs/TESTING.md).
+    - cron: "0 3 * * *"
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -61,3 +64,40 @@ jobs:
         run: |
           echo "### Unit tests (Python ${{ matrix.python-version }})" >> "$GITHUB_STEP_SUMMARY"
           echo "See the coverage report in the job log." >> "$GITHUB_STEP_SUMMARY"
+
+  coverage:
+    name: coverage gate (services/ + api/)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --extra dev
+      # ubuntu-latest ships a working Docker daemon, so testcontainers spins up real Postgres + Redis.
+      - name: Run all tiers under coverage
+        run: uv run coverage run -m pytest tests/unit tests/integration tests/security tests/property
+      - run: uv run coverage json -o coverage.json
+      - run: uv run coverage report
+      - name: Enforce line >= 90% / branch >= 85% on services/ + api/
+        run: uv run python scripts/check_coverage.py
+
+  mutation:
+    name: mutation baseline (services/)
+    runs-on: ubuntu-latest
+    # Heavier than a per-PR gate: run nightly and on demand (matches the nightly split in the spec).
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --extra dev
+      - run: uv run mutmut run
+      - run: uv run mutmut export-cicd-stats
+      - name: Enforce the mutation kill-rate baseline
+        run: uv run python scripts/check_mutation.py
