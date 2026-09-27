@@ -1,0 +1,75 @@
+# Production-shaped fallback so the delivery pipeline is runnable without a cloud account.
+# Azure Container Apps is the primary target (infra/main.bicep); this file is the "runs anywhere
+# there is a Docker host" alternative and the thing cd.yml can deploy to when DEPLOY_ENABLED is
+# not set.
+#
+# Differences from docker-compose.yml (the dev stack):
+#   - Runs a published, immutable image by tag (no local build, no source bind mounts).
+#   - Secrets come from the environment, never a checked-in default. It fails fast if JWT_SECRET
+#     is unset, instead of silently booting with the insecure dev key.
+#   - restart: unless-stopped, resource limits, and no host DB/Redis ports exposed.
+#
+# Usage:
+#   export IMAGE=ghcr.io/evg-g/appointments-api:1.2.3
+#   export JWT_SECRET=$(openssl rand -hex 32)
+#   docker compose -f docker-compose.prod.yml up -d
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aurora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-aurora}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aurora} -d ${POSTGRES_DB:-aurora}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    image: ${IMAGE:?IMAGE is required, e.g. ghcr.io/evg-g/appointments-api:1.2.3}
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-aurora}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-aurora}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: ${IMAGE:?IMAGE is required, e.g. ghcr.io/evg-g/appointments-api:1.2.3}
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-aurora}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-aurora}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in production}
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+volumes:
+  pgdata:

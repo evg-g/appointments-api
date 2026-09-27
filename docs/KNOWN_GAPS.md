@@ -13,11 +13,6 @@ appointment access and management. `PATIENT` (own only) and `CLINICIAN` (their c
 membership table), then scope admin reads/writes to that clinic. Deferred to keep milestone 3
 focused on the surface; tracked here so it is not forgotten.
 
-## Coverage / mutation gates not yet enforced
-
-Tests exist and pass, but the coverage and mutation-score gates from spec §5 are wired in
-milestone 5, not here.
-
 ## OpenAPI contract not yet published
 
 `contracts/openapi.json` and the `oasdiff` drift gate are milestone 7.
@@ -37,3 +32,24 @@ The delivery worker is off by default (`WEBHOOK_WORKER_ENABLED=false`); run it i
 that flag, or as its own process (`python -m appointments_api.workers.webhooks`). Dead-lettered
 deliveries land in the `webhook:dead` Redis list; there is no admin endpoint or alert to inspect or
 replay them yet.
+
+## CI/CD: what could not be executed in this environment (milestone 6)
+
+The workflows are complete and statically valid (`actionlint` + `yamllint` pass locally, wired into
+`make ci-local`). What could not be *run* here, and why:
+
+- **Deploy to Azure Container Apps** — no Azure subscription in this environment. The steps are
+  written and the IaC (`infra/main.bicep`) is complete, but they are guarded by
+  `vars.DEPLOY_ENABLED == 'true'` and skip cleanly, so the pipeline stays green with zero secrets.
+  Verified by construction (the `if:` guard); not verified against a live subscription.
+- **cosign signing, provenance, GHCR push** — need GitHub's OIDC endpoint and a real registry, so
+  they run on GitHub, not locally or under `act`. Documented in `docs/CI_CD.md`.
+- **CodeQL, gitleaks-action, Trivy actions** — run on GitHub-hosted runners. `trivy`, `cosign`, and
+  `act` are not installed in this local environment; the local `make scan` / `make sbom` targets need
+  Trivy installed to run.
+- **`release-please`** — opens/updates a release PR; the release flow (tag → build → deploy) only
+  triggers when that PR merges. Not exercised as part of building this milestone.
+
+The smoke and load tests are written against the real API contract and are runnable against any
+seeded stack (`docker compose up` + `scripts/seed.py`), but the *deployed* smoke run only happens
+inside a configured `cd.yml` deploy, which is gated off here.

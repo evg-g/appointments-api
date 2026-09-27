@@ -1,0 +1,37 @@
+# Keep the build context small and never ship secrets, VCS history, or local caches into the image.
+# A smaller context also means fewer files for the Trivy image scan to walk.
+
+.git
+.github
+.venv
+.env
+.env.*
+!.env.example
+
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+htmlcov/
+.coverage
+coverage.xml
+coverage.json
+dist/
+build/
+*.egg-info/
+
+# Mutation-testing working copy (mutmut writes a mutated tree here)
+mutants/
+
+# Tests and docs are not needed at runtime
+tests/
+docs/
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store

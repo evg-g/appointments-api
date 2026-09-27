@@ -19,6 +19,9 @@ dependencies = [
     "pyjwt>=2.9,<3",
     "argon2-cffi>=23.1,<24",
     "redis>=5.0,<6",
+    # Runtime HTTP client: main.py + the webhook delivery worker use httpx.AsyncClient. It must be a
+    # runtime dependency, not dev-only, or the --no-dev production image fails to import at startup.
+    "httpx>=0.27,<0.28",
 ]
 
 [project.optional-dependencies]
@@ -28,7 +31,6 @@ dev = [
     "pytest-cov>=5.0,<6",
     "pytest-mock>=3.14,<4",
     "pytest-xdist>=3.6,<4",
-    "httpx>=0.27,<0.28",
     "ruff>=0.7,<0.8",
     "mypy>=1.13,<2",
     "freezegun>=1.5,<2",
@@ -40,6 +42,11 @@ dev = [
     "hypothesis>=6.112,<7",
     "schemathesis>=3.36,<4",
     "mutmut>=3.2,<4",
+    # Milestone 6: CI/CD. yamllint checks workflow YAML locally (matches the CI workflow-lint job);
+    # locust drives the nightly load smoke; pip-audit runs the dependency CVE scan locally.
+    "yamllint>=1.35,<2",
+    "locust>=2.31,<3",
+    "pip-audit>=2.7,<3",
 ]
 
 [build-system]

@@ -1,0 +1,116 @@
+name: nightly
+
+# Heavier checks that are too slow for every PR. They run once a night and on demand.
+#   - flake:    re-run the integration suite several times to catch non-determinism.
+#   - mutation: mutmut on services/, enforced against the documented baseline.
+#   - load:     a small Locust scenario against the composed stack, with a p95 latency gate.
+#   - deps:     a dependency-freshness report (informational, never fails the build).
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC daily
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  flake:
+    name: flake detection (integration x3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-uv
+      - name: Run the integration suite three times
+        run: |
+          # Any failure across the three runs fails the job: a test that only sometimes passes is
+          # a bug in the test or the code, not luck we should depend on.
+          for i in 1 2 3; do
+            echo "::group::integration run $i"
+            uv run pytest tests/integration -q || exit 1
+            echo "::endgroup::"
+          done
+
+  mutation:
+    name: mutation baseline (services/)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-uv
+      - run: uv run mutmut run
+      - run: uv run mutmut export-cicd-stats
+      - name: Enforce the mutation kill-rate baseline
+        run: uv run python scripts/check_mutation.py >> "$GITHUB_STEP_SUMMARY"
+
+  load:
+    name: load smoke (Locust p95 gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-uv
+      - name: Bring up the stack (rate limiter off for the load run)
+        env:
+          RATE_LIMIT_ENABLED: "false"
+        run: docker compose up -d --build
+      - name: Wait for readiness
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health/ready >/dev/null; then
+              echo "ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become ready" >&2
+          docker compose logs --no-color >&2
+          exit 1
+      - name: Seed demo data (a patient to log in, a clinic graph to read)
+        run: docker compose exec -T api python scripts/seed.py
+      - name: Run Locust (headless) and enforce the latency budget
+        run: |
+          uv run locust -f tests/load/locustfile.py \
+            --headless -u 20 -r 5 -t 30s \
+            --host http://localhost:8000 \
+            --csv load --only-summary
+          uv run python scripts/check_load.py --csv-prefix load
+      - name: Load summary to job summary
+        if: always()
+        run: |
+          {
+            echo "### Load smoke (Locust)"
+            echo '```'
+            cat load_stats.csv 2>/dev/null || echo "no stats produced"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload Locust CSVs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-csv
+          path: load_*.csv
+          retention-days: 14
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  deps:
+    name: dependency freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-uv
+      - name: Report outdated dependencies (informational)
+        run: |
+          {
+            echo "### Outdated dependencies"
+            echo '```'
+            uv pip list --outdated || echo "(none / uv could not compute)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
