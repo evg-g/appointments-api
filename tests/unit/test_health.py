@@ -1,7 +1,7 @@
-"""Unit tests for the health endpoints.
+"""Unit test for the liveness endpoint.
 
-These use httpx's ASGI transport to call the app in-process — no network, no server, no
-Docker. They prove the app wiring and response models are correct.
+Liveness needs no dependencies, so it stays a unit test. Readiness now checks the database and
+Redis, so it is covered in the integration tier (tests/integration/test_health.py).
 """
 
 from __future__ import annotations
@@ -21,20 +21,8 @@ def client() -> httpx.AsyncClient:
 
 
 async def test_liveness_reports_ok_and_version(client: httpx.AsyncClient) -> None:
-    # Arrange / Act
     async with client:
         response = await client.get("/health/live")
 
-    # Assert
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "version": __version__}
-
-
-async def test_readiness_reports_process_check(client: httpx.AsyncClient) -> None:
-    async with client:
-        response = await client.get("/health/ready")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "ok"
-    assert body["checks"]["process"] == "ok"
