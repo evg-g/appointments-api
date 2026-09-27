@@ -34,6 +34,7 @@ flowchart TD
         U[unit tests<br/>py3.12 + py3.13]
         I[integration<br/>testcontainers]
         C[coverage gate<br/>line 90% / branch 85%]
+        CT[contract<br/>OpenAPI drift + oasdiff]
         B[docker build] --> S[security<br/>audit · Trivy fs+image · gitleaks · SBOM]
         Q[CodeQL]
     end
@@ -99,6 +100,12 @@ branch ≥ 85% on `services/` and `api/`** via `scripts/check_coverage.py`. HTML
 **Prevents:** new code paths shipping with no test exercising them. (Coverage is necessary, not
 sufficient — that is what the nightly mutation gate is for.)
 
+### `contract` — OpenAPI drift + `oasdiff`
+Fails if the schema the app serves has drifted from the committed `contracts/openapi.json`, and runs
+`oasdiff` to fail the PR on a **breaking** API change unless it is labeled `breaking-change`. Publishes
+`openapi.json` as a build artifact. **Prevents:** the web app's generated client silently going stale,
+and a breaking API change shipping without a deliberate decision. See `docs/CONTRACT_WORKFLOW.md`.
+
 ### `build` — Docker image
 Builds the multi-stage image with BuildKit and the GitHub Actions cache, loads it, and saves it as an
 artifact for the security job. **Prevents:** a Dockerfile that no longer builds — caught here, not at
@@ -163,6 +170,8 @@ Every PR gate has a matching `make` target so the exact commands run the same lo
 | unit | `make test` |
 | integration | `make test-integration` (needs Docker) |
 | coverage gate | `make coverage` (needs Docker) |
+| contract drift | `make contract-check` |
+| contract breaking | `make contract-diff` (needs oasdiff) |
 | build | `make build` |
 | image + fs scan | `make scan` (needs Trivy) |
 | SBOM | `make sbom` (needs Trivy) |

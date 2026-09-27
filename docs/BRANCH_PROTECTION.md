@@ -18,6 +18,7 @@ Apply as a branch protection rule (or a repository ruleset) targeting `main`:
   - `unit tests (3.12)` and `unit tests (3.13)`
   - `integration tests (testcontainers)`
   - `coverage gate (services/ + api/)`
+  - `contract (OpenAPI drift + oasdiff)`
   - `docker build`
   - `security (audit, scan, secrets, SBOM)`
   - `CodeQL (static analysis)`

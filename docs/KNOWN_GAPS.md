@@ -13,10 +13,6 @@ appointment access and management. `PATIENT` (own only) and `CLINICIAN` (their c
 membership table), then scope admin reads/writes to that clinic. Deferred to keep milestone 3
 focused on the surface; tracked here so it is not forgotten.
 
-## OpenAPI contract not yet published
-
-`contracts/openapi.json` and the `oasdiff` drift gate are milestone 7.
-
 ## Webhook emission is not transactional with the DB commit
 
 A state change publishes its event to Redis during the request, after the row has flushed but before

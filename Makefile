@@ -4,12 +4,14 @@
 .DEFAULT_GOAL := help
 UV ?= uv
 ACTIONLINT ?= actionlint
+OASDIFF ?= oasdiff
 IMAGE ?= appointments-api:local
 BASE_URL ?= http://localhost:8000
 
-.PHONY: help setup dev test test-integration test-property test-security lint fix typecheck \
-	coverage mutation ci-local clean migrate migrate-down migrate-sql \
-	lint-workflows build scan sbom seed smoke load stack-up stack-down
+.PHONY: help setup dev test test-integration test-property test-security test-contract lint fix \
+	typecheck coverage mutation ci-local clean migrate migrate-down migrate-sql \
+	lint-workflows build scan sbom seed smoke load stack-up stack-down \
+	contract contract-check contract-diff
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -33,8 +35,22 @@ test-property: ## Property-based tests: hypothesis + Schemathesis (needs Docker)
 test-security: ## Security tests: authz matrix, JWT, injection, mass-assignment (needs Docker)
 	$(UV) run pytest tests/security -q
 
+test-contract: ## Contract tests: the served OpenAPI matches contracts/openapi.json (no I/O)
+	$(UV) run pytest tests/contract -q
+
+contract: ## Regenerate contracts/openapi.json from the served schema
+	$(UV) run python scripts/export_openapi.py
+
+contract-check: ## Fail if contracts/openapi.json is stale vs the served schema
+	$(UV) run python scripts/export_openapi.py --check
+
+contract-diff: ## Show breaking changes vs origin/main's committed contract (needs oasdiff)
+	@git show origin/main:contracts/openapi.json > /tmp/base-openapi.json 2>/dev/null || \
+		{ echo "no base contract on origin/main"; exit 0; }
+	$(OASDIFF) breaking /tmp/base-openapi.json contracts/openapi.json --fail-on ERR
+
 coverage: ## Run all tiers under coverage and enforce the services/+api/ gate (needs Docker)
-	$(UV) run coverage run -m pytest tests/unit tests/integration tests/security tests/property
+	$(UV) run coverage run -m pytest tests/unit tests/integration tests/security tests/property tests/contract
 	$(UV) run coverage json -o coverage.json
 	$(UV) run coverage report
 	$(UV) run python scripts/check_coverage.py

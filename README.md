@@ -15,7 +15,7 @@ design, testing, and CI/CD.
 
 ## Status
 
-Through milestone 4. Implemented so far:
+Through milestone 7. Implemented so far:
 
 - Domain core: models, migrations, the double-booking exclusion constraint, the appointment state
   machine, and DST-aware availability (milestone 2).
@@ -24,9 +24,15 @@ Through milestone 4. Implemented so far:
 - Advanced request semantics (milestone 4): `Idempotency-Key` on create, `ETag`/`If-Match`
   optimistic concurrency, per-principal rate limiting, and signed webhooks delivered by a retrying
   background worker.
+- Test tiers and quality gates (milestone 5): property-based (`hypothesis` + Schemathesis) and
+  security tiers, plus enforced coverage and mutation gates.
+- CI/CD (milestone 6): `ci` / `cd` / `nightly` workflows — build, Trivy/gitleaks/SBOM/CodeQL,
+  cosign-signed GHCR images, OIDC deploy to Azure Container Apps (skips cleanly with no secrets),
+  smoke + Locust load gates. See `docs/CI_CD.md` and `docs/DEPLOYMENT.md`.
+- Contract publication (milestone 7): the served OpenAPI is committed at `contracts/openapi.json`
+  with a drift gate and an `oasdiff` breaking-change gate. See `docs/CONTRACT_WORKFLOW.md`.
 
-Still to come (see the top-level `PLAN.md`): property/security test tiers and coverage/mutation
-gates, CI/CD, and the OpenAPI contract publication.
+Still to come (see the top-level `PLAN.md`): the device repo, telemetry ingestion, and the web app.
 
 ## Quick start
 

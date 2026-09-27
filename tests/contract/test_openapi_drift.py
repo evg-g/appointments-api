@@ -1,0 +1,42 @@
+"""Contract drift gate: the OpenAPI the app serves must match the committed contracts/openapi.json.
+
+Why this matters: the web app generates its API client from contracts/openapi.json. If the API
+surface changes but the committed file is not regenerated, the generated client silently goes stale.
+This test fails the build on that drift, forcing `make contract` to be part of any API change.
+
+It reuses the exact serialization from scripts/export_openapi.py, so "matches" means byte-identical
+to the canonical form — no formatting-only diffs, and no second implementation to drift.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+from types import ModuleType
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CONTRACT_PATH = REPO_ROOT / "contracts" / "openapi.json"
+EXPORT_SCRIPT = REPO_ROOT / "scripts" / "export_openapi.py"
+
+
+def _load_export_module() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("export_openapi", EXPORT_SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_committed_openapi_matches_served_schema() -> None:
+    export = _load_export_module()
+    served = export.serialize(export.current_spec())
+
+    assert (
+        CONTRACT_PATH.exists()
+    ), "contracts/openapi.json is missing — generate it with `make contract`."
+    committed = CONTRACT_PATH.read_text(encoding="utf-8")
+
+    assert committed == served, (
+        "contracts/openapi.json is out of date with the served OpenAPI schema. "
+        "Regenerate it with `make contract` and commit the result."
+    )

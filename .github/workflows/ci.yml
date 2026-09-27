@@ -131,7 +131,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-python-uv
       - name: Run all tiers under coverage
-        run: uv run coverage run -m pytest tests/unit tests/integration tests/security tests/property
+        run: >
+          uv run coverage run -m pytest
+          tests/unit tests/integration tests/security tests/property tests/contract
       - run: uv run coverage json -o coverage.json
       - run: uv run coverage html
       - run: uv run coverage report
@@ -144,6 +146,57 @@ jobs:
           name: coverage-html
           path: htmlcov/
           retention-days: 14
+
+  contract:
+    name: contract (OpenAPI drift + oasdiff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the base commit for the oasdiff comparison
+      - uses: ./.github/actions/setup-python-uv
+      # 1. Drift: the served schema must equal the committed contracts/openapi.json.
+      - name: OpenAPI drift check
+        run: uv run pytest tests/contract -q
+      - name: Publish OpenAPI as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi
+          path: contracts/openapi.json
+          retention-days: 90
+      # 2. Breaking-change gate: compare against the base branch's committed schema. Same oasdiff
+      #    binary and command as `make contract-diff`, so local and CI agree.
+      - name: Install oasdiff
+        run: |
+          mkdir -p bin
+          curl -fsSL -o /tmp/oasdiff.tgz \
+            https://github.com/oasdiff/oasdiff/releases/download/v1.32.1/oasdiff_1.32.1_linux_amd64.tar.gz
+          tar -xzf /tmp/oasdiff.tgz -C bin oasdiff
+      - name: Extract the base branch's OpenAPI
+        id: base
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git cat-file -e "$BASE_SHA:contracts/openapi.json" 2>/dev/null; then
+            git show "$BASE_SHA:contracts/openapi.json" > base-openapi.json
+            echo "has_base=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_base=false" >> "$GITHUB_OUTPUT" # first time the contract is introduced
+          fi
+      - name: oasdiff breaking-change check
+        if: >
+          github.event_name == 'pull_request' &&
+          steps.base.outputs.has_base == 'true' &&
+          !contains(github.event.pull_request.labels.*.name, 'breaking-change')
+        run: |
+          # Fails the PR on a breaking change. To land one deliberately, label the PR
+          # 'breaking-change' and bump the version (see docs/CONTRACT_WORKFLOW.md).
+          ./bin/oasdiff breaking base-openapi.json contracts/openapi.json --fail-on ERR
 
   build:
     name: docker build
