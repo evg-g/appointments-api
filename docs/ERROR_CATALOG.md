@@ -13,7 +13,12 @@ Every error response uses `application/problem+json` (RFC 9457). The body always
 | `not-found` | 404 | The addressed resource does not exist (or you may not see it). |
 | `conflict` | 409 | A state conflict: an illegal appointment status transition, or a generic integrity conflict. |
 | `slot-unavailable` | 409 | The requested time overlaps an existing appointment for that clinician (service-layer check, and the DB exclusion constraint under a race). |
+| `idempotency-conflict` | 409 | A request with the same `Idempotency-Key` is still being processed; retry shortly. |
+| `precondition-failed` | 412 | The `If-Match` ETag did not match the resource's current version (someone changed it first). |
+| `precondition-required` | 428 | A mutating request (`transition`/`cancel`) omitted the required `If-Match` header. |
 | `validation-error` | 422 | Request body/query failed validation, or a business rule rejected the input (e.g. time outside working hours). `errors[]` lists the offending fields. |
+| `idempotency-key-reused` | 422 | An `Idempotency-Key` was replayed with a different request body. |
+| `rate-limited` | 429 | The principal exceeded its rate-limit window. Carries `Retry-After` and `RateLimit-*` headers. |
 
 ## Examples
 
@@ -39,5 +44,29 @@ Double-booking under load:
   "status": 409,
   "detail": "That time overlaps an existing appointment for this clinician.",
   "instance": "/api/v1/appointments"
+}
+```
+
+Stale conditional update (ETag/If-Match):
+
+```json
+{
+  "type": "https://aurora.example/problems/precondition-failed",
+  "title": "Precondition failed",
+  "status": 412,
+  "detail": "The appointment has changed since you last read it; re-read it and retry.",
+  "instance": "/api/v1/appointments/1f.../transition"
+}
+```
+
+Rate limited (headers: `Retry-After`, `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`):
+
+```json
+{
+  "type": "https://aurora.example/problems/rate-limited",
+  "title": "Too many requests",
+  "status": 429,
+  "detail": "Rate limit exceeded; slow down and retry after the indicated delay.",
+  "instance": "/api/v1/auth/me"
 }
 ```
