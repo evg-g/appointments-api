@@ -15,6 +15,7 @@ from starlette.responses import JSONResponse
 
 from appointments_api import __version__
 from appointments_api.api.errors import register_error_handlers
+from appointments_api.api.middleware import rate_limit_middleware
 from appointments_api.api.routers import (
     appointments,
     auth,
@@ -76,6 +77,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.redis = redis
 
     register_error_handlers(app)
+
+    # Registered first so it runs *inside* the request-id middleware: even a 429 from the limiter
+    # still gets an X-Request-ID on the way out.
+    app.middleware("http")(rate_limit_middleware)
 
     @app.middleware("http")
     async def _request_id(request: Request, call_next):  # type: ignore[no-untyped-def]
