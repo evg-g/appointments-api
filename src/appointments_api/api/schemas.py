@@ -17,11 +17,13 @@ from pydantic import (
     ConfigDict,
     EmailStr,
     Field,
+    HttpUrl,
     ValidationInfo,
     field_validator,
 )
 
 from appointments_api.enums import AppointmentStatus, UserRole
+from appointments_api.services.webhooks.events import WebhookEventType
 
 # ---- auth ----
 
@@ -197,3 +199,24 @@ class AppointmentOut(BaseModel):
 class SlotOut(BaseModel):
     start: datetime
     end: datetime
+
+
+# ---- webhooks ----
+
+
+class WebhookSubscriptionCreate(BaseModel):
+    url: HttpUrl
+    # The shared signing secret. Required to be reasonably long; write-only (never returned).
+    secret: str = Field(min_length=16, max_length=255)
+    event_types: list[WebhookEventType] = Field(min_length=1)
+    clinic_id: uuid.UUID | None = None
+
+
+class WebhookSubscriptionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    url: str
+    event_types: list[str]
+    clinic_id: uuid.UUID | None
+    is_active: bool

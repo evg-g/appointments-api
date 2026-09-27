@@ -33,6 +33,7 @@ from appointments_api.api.deps import (
     PageParams,
     ServiceRepoDep,
     UserRepoDep,
+    WebhookDispatcherDep,
 )
 from appointments_api.api.errors import (
     ForbiddenError,
@@ -56,10 +57,17 @@ from appointments_api.models import Appointment, User
 from appointments_api.services.appointments.cancellation import assert_can_cancel
 from appointments_api.services.appointments.state_machine import assert_transition
 from appointments_api.services.availability import fits_working_hours
+from appointments_api.services.clock import Clock
 from appointments_api.services.idempotency import (
     BeginState,
     StoredResponse,
     request_fingerprint,
+)
+from appointments_api.services.webhooks.dispatcher import WebhookDispatcher
+from appointments_api.services.webhooks.events import (
+    WebhookEvent,
+    WebhookEventType,
+    event_type_for_status,
 )
 
 router = APIRouter(prefix="/appointments", tags=["appointments"])
@@ -87,6 +95,22 @@ def _replayed_response(stored: StoredResponse) -> JSONResponse:
     if stored.etag is not None:
         headers["ETag"] = stored.etag
     return JSONResponse(status_code=stored.status_code, content=stored.body, headers=headers)
+
+
+async def _emit(
+    dispatcher: WebhookDispatcher,
+    clock: Clock,
+    event_type: WebhookEventType,
+    appointment: Appointment,
+) -> None:
+    """Publish a state-change event for the webhook worker to fan out and deliver."""
+    event = WebhookEvent(
+        id=uuid.uuid4().hex,
+        type=event_type.value,
+        occurred_at=clock.now(),
+        data={"appointment": _serialize(appointment)},
+    )
+    await dispatcher.dispatch(event)
 
 
 async def _assert_can_access(
@@ -193,6 +217,8 @@ async def create_appointment(
     services: ServiceRepoDep,
     appointments: AppointmentRepoDep,
     idempotency: IdempotencyServiceDep,
+    dispatcher: WebhookDispatcherDep,
+    clock: ClockDep,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> Response:
     fingerprint: str | None = None
@@ -232,6 +258,7 @@ async def create_appointment(
                 etag=make_etag(appointment.version),
             ),
         )
+    await _emit(dispatcher, clock, WebhookEventType.APPOINTMENT_CREATED, appointment)
     return _appointment_response(appointment, status_code=status.HTTP_201_CREATED)
 
 
@@ -291,6 +318,8 @@ async def transition_appointment(
     current: CurrentUser,
     appointments: AppointmentRepoDep,
     clinicians: ClinicianRepoDep,
+    dispatcher: WebhookDispatcherDep,
+    clock: ClockDep,
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> Response:
     appointment = await appointments.get(appointment_id)
@@ -305,6 +334,9 @@ async def transition_appointment(
     assert_transition(appointment.status, body.target_status)
     appointment.status = body.target_status
     await appointments.flush()
+    event_type = event_type_for_status(appointment.status)
+    if event_type is not None:
+        await _emit(dispatcher, clock, event_type, appointment)
     return _appointment_response(appointment)
 
 
@@ -317,6 +349,7 @@ async def cancel_appointment(
     clinics: ClinicRepoDep,
     clinicians: ClinicianRepoDep,
     clock: ClockDep,
+    dispatcher: WebhookDispatcherDep,
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> Response:
     appointment = await appointments.get(appointment_id)
@@ -338,4 +371,5 @@ async def cancel_appointment(
     appointment.status = AppointmentStatus.CANCELLED
     appointment.cancellation_reason = body.reason
     await appointments.flush()
+    await _emit(dispatcher, clock, WebhookEventType.APPOINTMENT_CANCELLED, appointment)
     return _appointment_response(appointment)

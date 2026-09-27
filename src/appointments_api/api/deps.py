@@ -25,12 +25,15 @@ from appointments_api.repositories.clinicians import ClinicianRepository
 from appointments_api.repositories.clinics import ClinicRepository
 from appointments_api.repositories.redis_idempotency import RedisIdempotencyStore
 from appointments_api.repositories.redis_tokens import RedisRefreshTokenStore
+from appointments_api.repositories.redis_webhooks import RedisEventQueue
 from appointments_api.repositories.services import ServiceRepository
 from appointments_api.repositories.users import UserRepository
+from appointments_api.repositories.webhooks import WebhookSubscriptionRepository
 from appointments_api.security import TokenError, decode_access_token
 from appointments_api.services.clock import Clock, SystemClock
 from appointments_api.services.idempotency import IdempotencyService
 from appointments_api.services.tokens import TokenService
+from appointments_api.services.webhooks.dispatcher import WebhookDispatcher
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 RedisDep = Annotated[Redis, Depends(get_redis)]
@@ -67,6 +70,14 @@ def get_idempotency_service(redis: RedisDep, settings: SettingsDep) -> Idempoten
     return IdempotencyService(store, ttl_seconds=settings.idempotency_ttl_seconds)
 
 
+def get_webhook_subscription_repository(session: SessionDep) -> WebhookSubscriptionRepository:
+    return WebhookSubscriptionRepository(session)
+
+
+def get_webhook_dispatcher(redis: RedisDep) -> WebhookDispatcher:
+    return WebhookDispatcher(RedisEventQueue(redis))
+
+
 def get_clock() -> Clock:
     return SystemClock()
 
@@ -81,6 +92,10 @@ ServiceRepoDep = Annotated[ServiceRepository, Depends(get_service_repository)]
 AppointmentRepoDep = Annotated[AppointmentRepository, Depends(get_appointment_repository)]
 TokenServiceDep = Annotated[TokenService, Depends(get_token_service)]
 IdempotencyServiceDep = Annotated[IdempotencyService, Depends(get_idempotency_service)]
+WebhookSubscriptionRepoDep = Annotated[
+    WebhookSubscriptionRepository, Depends(get_webhook_subscription_repository)
+]
+WebhookDispatcherDep = Annotated[WebhookDispatcher, Depends(get_webhook_dispatcher)]
 
 
 async def get_current_user(

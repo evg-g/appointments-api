@@ -13,6 +13,7 @@ from appointments_api.models.clinic import Clinic
 from appointments_api.models.clinician import Clinician, ClinicianWorkingHours
 from appointments_api.models.service import Service
 from appointments_api.models.user import User
+from appointments_api.models.webhook import WebhookSubscription
 
 __all__ = [
     "Appointment",
@@ -23,4 +24,5 @@ __all__ = [
     "ClinicianWorkingHours",
     "Service",
     "User",
+    "WebhookSubscription",
 ]

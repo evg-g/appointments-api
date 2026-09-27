@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Literal
 
+import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -24,6 +27,7 @@ from appointments_api.api.routers import (
     clinics,
     services,
     users,
+    webhooks,
 )
 from appointments_api.config import Settings, get_settings
 from appointments_api.db import create_engine, create_redis, create_sessionmaker
@@ -59,9 +63,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        # The webhook worker can run in-process (off by default; usually a separate process via
+        # `python -m appointments_api.workers.webhooks`). When enabled, start it here and stop it
+        # cleanly on shutdown.
+        worker_task: asyncio.Task[None] | None = None
+        stop: asyncio.Event | None = None
+        http_client: httpx.AsyncClient | None = None
+        if settings.webhook_worker_enabled:
+            from appointments_api.workers.webhooks import build_worker
+
+            http_client = httpx.AsyncClient()
+            stop = asyncio.Event()
+            worker = build_worker(
+                redis=redis,
+                sessionmaker=sessionmaker,
+                http_client=http_client,
+                settings=settings,
+            )
+            worker_task = asyncio.create_task(worker.run(stop))
         try:
             yield
         finally:
+            if worker_task is not None and stop is not None:
+                stop.set()
+                worker_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await worker_task
+            if http_client is not None:
+                await http_client.aclose()
             await engine.dispose()
             await redis.aclose()
 
@@ -115,7 +144,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body = ReadinessResponse(status="ok" if ready else "degraded", checks=checks)
         return JSONResponse(status_code=200 if ready else 503, content=body.model_dump())
 
-    for module in (auth, users, clinics, clinicians, services, availability, appointments):
+    for module in (
+        auth,
+        users,
+        clinics,
+        clinicians,
+        services,
+        availability,
+        appointments,
+        webhooks,
+    ):
         app.include_router(module.router, prefix=API_PREFIX)
 
     return app
