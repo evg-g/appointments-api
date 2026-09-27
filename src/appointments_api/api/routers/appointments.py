@@ -3,28 +3,44 @@
 RBAC (spec §4 rule 5): a PATIENT sees/acts on only their own appointments; a CLINICIAN on their
 clinic's; CLINIC_ADMIN and PLATFORM_ADMIN on all. Clinic-scoping of CLINIC_ADMIN is intentionally
 broad for now — the model has no admin↔clinic link yet; see docs/KNOWN_GAPS.md.
+
+Milestone 4 advanced semantics live here too:
+
+- **Idempotency-Key** on create (rule 6): a repeated key replays the original resource instead of
+  booking a duplicate.
+- **ETag / If-Match** on read and the two mutating endpoints (rule 7): every appointment response
+  carries an ``ETag`` built from its ``version``; a transition or cancel must echo the current ETag
+  in ``If-Match`` or it is refused (``428`` if absent, ``412`` if stale).
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, timedelta
+from typing import Annotated, Any
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Header, Request, status
+from starlette.responses import JSONResponse, Response
 
+from appointments_api.api.conditional import if_match_satisfied, make_etag
 from appointments_api.api.deps import (
     AppointmentRepoDep,
     ClinicianRepoDep,
     ClinicRepoDep,
     ClockDep,
     CurrentUser,
+    IdempotencyServiceDep,
     PageParams,
     ServiceRepoDep,
     UserRepoDep,
 )
 from appointments_api.api.errors import (
     ForbiddenError,
+    IdempotencyConflictError,
+    IdempotencyKeyReusedError,
     NotFoundError,
+    PreconditionFailedError,
+    PreconditionRequiredError,
     SlotUnavailableError,
     ValidationProblem,
 )
@@ -40,10 +56,37 @@ from appointments_api.models import Appointment, User
 from appointments_api.services.appointments.cancellation import assert_can_cancel
 from appointments_api.services.appointments.state_machine import assert_transition
 from appointments_api.services.availability import fits_working_hours
+from appointments_api.services.idempotency import (
+    BeginState,
+    StoredResponse,
+    request_fingerprint,
+)
 
 router = APIRouter(prefix="/appointments", tags=["appointments"])
 
 _ADMIN_ROLES = frozenset({UserRole.CLINIC_ADMIN, UserRole.PLATFORM_ADMIN})
+_IDEMPOTENCY_SCOPE = "appointments:create"
+
+
+def _serialize(appointment: Appointment) -> dict[str, Any]:
+    """The JSON body for an appointment, identical to what response_model would produce."""
+    return AppointmentOut.model_validate(appointment).model_dump(mode="json")
+
+
+def _appointment_response(appointment: Appointment, *, status_code: int = 200) -> JSONResponse:
+    """Serialize an appointment and attach its ETag (derived from the optimistic-lock version)."""
+    return JSONResponse(
+        status_code=status_code,
+        content=_serialize(appointment),
+        headers={"ETag": make_etag(appointment.version)},
+    )
+
+
+def _replayed_response(stored: StoredResponse) -> JSONResponse:
+    headers = {"Idempotency-Replayed": "true"}
+    if stored.etag is not None:
+        headers["ETag"] = stored.etag
+    return JSONResponse(status_code=stored.status_code, content=stored.body, headers=headers)
 
 
 async def _assert_can_access(
@@ -64,16 +107,16 @@ async def _assert_can_access(
     raise ForbiddenError("Not allowed.")
 
 
-@router.post("", response_model=AppointmentOut, status_code=status.HTTP_201_CREATED)
-async def create_appointment(
+async def _build_appointment(
     body: AppointmentCreate,
-    current: CurrentUser,
+    current: User,
     users: UserRepoDep,
     clinics: ClinicRepoDep,
     clinicians: ClinicianRepoDep,
     services: ServiceRepoDep,
     appointments: AppointmentRepoDep,
 ) -> Appointment:
+    """Validate the request and persist a new appointment, or raise the right problem."""
     # Resolve the patient: a PATIENT books for themselves; staff must name the patient.
     if current.role is UserRole.PATIENT:
         if body.patient_id is not None and body.patient_id != current.id:
@@ -139,6 +182,59 @@ async def create_appointment(
     return await appointments.add(appointment)
 
 
+@router.post("", response_model=AppointmentOut, status_code=status.HTTP_201_CREATED)
+async def create_appointment(
+    body: AppointmentCreate,
+    request: Request,
+    current: CurrentUser,
+    users: UserRepoDep,
+    clinics: ClinicRepoDep,
+    clinicians: ClinicianRepoDep,
+    services: ServiceRepoDep,
+    appointments: AppointmentRepoDep,
+    idempotency: IdempotencyServiceDep,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> Response:
+    fingerprint: str | None = None
+    if idempotency_key is not None:
+        fingerprint = request_fingerprint(current.id, await request.body())
+        begin = await idempotency.begin(_IDEMPOTENCY_SCOPE, idempotency_key, fingerprint)
+        if begin.state is BeginState.REPLAY and begin.stored is not None:
+            return _replayed_response(begin.stored)
+        if begin.state is BeginState.IN_PROGRESS:
+            raise IdempotencyConflictError(
+                "A request with this Idempotency-Key is still being processed; retry shortly."
+            )
+        if begin.state is BeginState.FINGERPRINT_MISMATCH:
+            raise IdempotencyKeyReusedError(
+                "This Idempotency-Key was already used for a different request body."
+            )
+
+    try:
+        appointment = await _build_appointment(
+            body, current, users, clinics, clinicians, services, appointments
+        )
+    except Exception:
+        # A failed attempt must not poison the key: drop the pending marker so a corrected retry
+        # can start fresh.
+        if idempotency_key is not None and fingerprint is not None:
+            await idempotency.release(_IDEMPOTENCY_SCOPE, idempotency_key, fingerprint)
+        raise
+
+    if idempotency_key is not None and fingerprint is not None:
+        await idempotency.complete(
+            _IDEMPOTENCY_SCOPE,
+            idempotency_key,
+            fingerprint,
+            StoredResponse(
+                status_code=status.HTTP_201_CREATED,
+                body=_serialize(appointment),
+                etag=make_etag(appointment.version),
+            ),
+        )
+    return _appointment_response(appointment, status_code=status.HTTP_201_CREATED)
+
+
 @router.get("", response_model=Page[AppointmentOut])
 async def list_appointments(
     current: CurrentUser,
@@ -168,12 +264,24 @@ async def get_appointment(
     current: CurrentUser,
     appointments: AppointmentRepoDep,
     clinicians: ClinicianRepoDep,
-) -> Appointment:
+) -> Response:
     appointment = await appointments.get(appointment_id)
     if appointment is None:
         raise NotFoundError("No such appointment.")
     await _assert_can_access(current, appointment, clinicians)
-    return appointment
+    return _appointment_response(appointment)
+
+
+def _require_if_match(if_match: str | None, current_version: int) -> None:
+    """Enforce the ETag precondition on a mutating request."""
+    if if_match is None:
+        raise PreconditionRequiredError(
+            "This update requires an If-Match header carrying the appointment's current ETag."
+        )
+    if not if_match_satisfied(if_match, current_version):
+        raise PreconditionFailedError(
+            "The appointment has changed since you last read it; re-read it and retry."
+        )
 
 
 @router.post("/{appointment_id}/transition", response_model=AppointmentOut)
@@ -183,18 +291,21 @@ async def transition_appointment(
     current: CurrentUser,
     appointments: AppointmentRepoDep,
     clinicians: ClinicianRepoDep,
-) -> Appointment:
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+) -> Response:
     appointment = await appointments.get(appointment_id)
     if appointment is None:
         raise NotFoundError("No such appointment.")
     if current.role is UserRole.PATIENT:
         raise ForbiddenError("Patients cannot change status directly; use the cancel endpoint.")
     await _assert_can_access(current, appointment, clinicians)
+    _require_if_match(if_match, appointment.version)
     if body.target_status is AppointmentStatus.CANCELLED:
         raise ValidationProblem("Use the cancel endpoint to cancel an appointment.")
     assert_transition(appointment.status, body.target_status)
     appointment.status = body.target_status
-    return appointment
+    await appointments.flush()
+    return _appointment_response(appointment)
 
 
 @router.post("/{appointment_id}/cancel", response_model=AppointmentOut)
@@ -206,20 +317,25 @@ async def cancel_appointment(
     clinics: ClinicRepoDep,
     clinicians: ClinicianRepoDep,
     clock: ClockDep,
-) -> Appointment:
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+) -> Response:
     appointment = await appointments.get(appointment_id)
     if appointment is None:
         raise NotFoundError("No such appointment.")
     await _assert_can_access(current, appointment, clinicians)
     clinic = await clinics.get(appointment.clinic_id)
     cutoff = clinic.cancellation_cutoff_hours if clinic else 24
+    # The cancellation window is an authorization rule (patient vs admin), checked before the ETag
+    # precondition so an unauthorized cancel is refused without revealing the resource's version.
     assert_can_cancel(
         starts_at=appointment.starts_at,
         now=clock.now(),
         cutoff_hours=cutoff,
         role=current.role,
     )
+    _require_if_match(if_match, appointment.version)
     assert_transition(appointment.status, AppointmentStatus.CANCELLED)
     appointment.status = AppointmentStatus.CANCELLED
     appointment.cancellation_reason = body.reason
-    return appointment
+    await appointments.flush()
+    return _appointment_response(appointment)

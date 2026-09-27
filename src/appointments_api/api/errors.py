@@ -8,12 +8,13 @@ path), and, for validation failures, a machine-readable ``errors[]`` list. Clien
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.exc import StaleDataError
 from starlette.responses import JSONResponse
 
 from appointments_api.services.errors import (
@@ -56,10 +57,16 @@ class APIError(Exception):
     title: str = "Internal Server Error"
 
     def __init__(
-        self, detail: str | None = None, errors: Sequence[FieldError] | None = None
+        self,
+        detail: str | None = None,
+        errors: Sequence[FieldError] | None = None,
+        *,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         self.detail = detail
         self.errors = list(errors) if errors else None
+        # Extra response headers (e.g. Retry-After / RateLimit-* on a 429). Rendered by _json.
+        self.headers = dict(headers) if headers else None
         super().__init__(detail or self.title)
 
     def to_problem(self, instance: str) -> Problem:
@@ -109,11 +116,52 @@ class ValidationProblem(APIError):
     title = "Request validation failed"
 
 
-def _json(problem: Problem) -> JSONResponse:
+class PreconditionRequiredError(APIError):
+    """A mutating request omitted the required ``If-Match`` header (RFC 6585)."""
+
+    status = 428
+    slug = "precondition-required"
+    title = "If-Match header is required"
+
+
+class PreconditionFailedError(APIError):
+    """The ``If-Match`` ETag did not match the resource's current version (RFC 9110)."""
+
+    status = 412
+    slug = "precondition-failed"
+    title = "Precondition failed"
+
+
+class TooManyRequestsError(APIError):
+    """The principal exceeded its rate-limit window; carries Retry-After + RateLimit-* headers."""
+
+    status = 429
+    slug = "rate-limited"
+    title = "Too many requests"
+
+
+class IdempotencyConflictError(APIError):
+    """A request with the same Idempotency-Key is still being processed."""
+
+    status = 409
+    slug = "idempotency-conflict"
+    title = "Idempotency-Key is already in progress"
+
+
+class IdempotencyKeyReusedError(APIError):
+    """An Idempotency-Key was replayed with a different request body."""
+
+    status = 422
+    slug = "idempotency-key-reused"
+    title = "Idempotency-Key reused with a different request body"
+
+
+def _json(problem: Problem, headers: Mapping[str, str] | None = None) -> JSONResponse:
     return JSONResponse(
         status_code=problem.status,
         media_type=PROBLEM_CONTENT_TYPE,
         content=problem.model_dump(exclude_none=True),
+        headers=dict(headers) if headers else None,
     )
 
 
@@ -122,7 +170,7 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(APIError)
     async def _api_error(request: Request, exc: APIError) -> JSONResponse:
-        return _json(exc.to_problem(request.url.path))
+        return _json(exc.to_problem(request.url.path), exc.headers)
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -149,6 +197,15 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(DomainError)
     async def _domain(request: Request, exc: DomainError) -> JSONResponse:
         problem = ValidationProblem(detail=str(exc))
+        return _json(problem.to_problem(request.url.path))
+
+    @app.exception_handler(StaleDataError)
+    async def _stale_data(request: Request, exc: StaleDataError) -> JSONResponse:
+        # Optimistic-lock miss: the row's version moved between our read and our UPDATE. This is
+        # the database half of ETag/If-Match — a stale writer is rejected, not silently overwritten.
+        problem = PreconditionFailedError(
+            detail="The resource was modified by another request; re-read it and retry."
+        )
         return _json(problem.to_problem(request.url.path))
 
     @app.exception_handler(IntegrityError)

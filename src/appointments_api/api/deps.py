@@ -23,11 +23,13 @@ from appointments_api.models import User
 from appointments_api.repositories.appointments import AppointmentRepository
 from appointments_api.repositories.clinicians import ClinicianRepository
 from appointments_api.repositories.clinics import ClinicRepository
+from appointments_api.repositories.redis_idempotency import RedisIdempotencyStore
 from appointments_api.repositories.redis_tokens import RedisRefreshTokenStore
 from appointments_api.repositories.services import ServiceRepository
 from appointments_api.repositories.users import UserRepository
 from appointments_api.security import TokenError, decode_access_token
 from appointments_api.services.clock import Clock, SystemClock
+from appointments_api.services.idempotency import IdempotencyService
 from appointments_api.services.tokens import TokenService
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -60,6 +62,11 @@ def get_token_service(redis: RedisDep, settings: SettingsDep) -> TokenService:
     return TokenService(store, ttl_seconds=settings.refresh_token_ttl_seconds)
 
 
+def get_idempotency_service(redis: RedisDep, settings: SettingsDep) -> IdempotencyService:
+    store = RedisIdempotencyStore(redis)
+    return IdempotencyService(store, ttl_seconds=settings.idempotency_ttl_seconds)
+
+
 def get_clock() -> Clock:
     return SystemClock()
 
@@ -73,6 +80,7 @@ ClinicianRepoDep = Annotated[ClinicianRepository, Depends(get_clinician_reposito
 ServiceRepoDep = Annotated[ServiceRepository, Depends(get_service_repository)]
 AppointmentRepoDep = Annotated[AppointmentRepository, Depends(get_appointment_repository)]
 TokenServiceDep = Annotated[TokenService, Depends(get_token_service)]
+IdempotencyServiceDep = Annotated[IdempotencyService, Depends(get_idempotency_service)]
 
 
 async def get_current_user(

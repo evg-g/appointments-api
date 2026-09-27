@@ -200,3 +200,26 @@ def login(client: httpx.AsyncClient):  # type: ignore[no-untyped-def]
         return token
 
     return _login
+
+
+@pytest.fixture
+async def booking_env(seed, login):  # type: ignore[no-untyped-def]
+    """A ready-to-book world: one clinic (open all week), one clinician, one service, and a
+    patient + admin token. Shared by the milestone-4 idempotency and ETag suites."""
+    all_week = [(wd, "06:00", "22:00") for wd in range(7)]
+    await seed.user(role="PLATFORM_ADMIN", email="admin@x.io")
+    patient_id = await seed.user(role="PATIENT", email="patient@x.io")
+    clinician_user = await seed.user(role="CLINICIAN", email="doc@x.io")
+    clinic_id = await seed.clinic(timezone="UTC", cutoff_hours=24)
+    clinician_id = await seed.clinician(
+        clinic_id=clinic_id, user_id=clinician_user, working_hours=all_week
+    )
+    service_id = await seed.service(clinic_id=clinic_id, duration_minutes=30)
+    return {
+        "patient_id": patient_id,
+        "clinic_id": clinic_id,
+        "clinician_id": clinician_id,
+        "service_id": service_id,
+        "patient_token": await login("patient@x.io"),
+        "admin_token": await login("admin@x.io"),
+    }

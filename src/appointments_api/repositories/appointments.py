@@ -35,6 +35,15 @@ class AppointmentRepository:
         await self._s.flush()
         return appointment
 
+    async def flush(self) -> None:
+        """Flush pending changes so an UPDATE is emitted now.
+
+        This makes the optimistic-lock ``version`` bump visible on the in-memory object (for the
+        response ETag) and surfaces a lost-update race as ``StaleDataError`` inside the request,
+        where the error handler can turn it into ``412`` instead of a late 500 at commit time.
+        """
+        await self._s.flush()
+
     async def list_for_patient(
         self, patient_id: uuid.UUID, *, limit: int, cursor: Cursor | None
     ) -> tuple[list[Appointment], bool]:

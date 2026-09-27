@@ -33,6 +33,8 @@ dev = [
     "freezegun>=1.5,<2",
     "testcontainers[postgres,redis]>=4.8,<5",
     "polyfactory>=2.17,<3",
+    "fakeredis>=2.25,<3",
+    "respx>=0.21,<0.22",
 ]
 
 [build-system]
@@ -67,6 +69,11 @@ files = ["src", "tests"]
 [[tool.mypy.overrides]]
 # testcontainers ships no type information.
 module = ["testcontainers.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# fakeredis ships no type information; respx's stubs are incomplete.
+module = ["fakeredis.*", "respx.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

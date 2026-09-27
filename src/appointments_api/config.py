@@ -43,6 +43,27 @@ class Settings(BaseSettings):
     access_token_ttl_seconds: int = 15 * 60  # 15 minutes
     refresh_token_ttl_seconds: int = 14 * 24 * 60 * 60  # 14 days
 
+    # Idempotency-Key (milestone 4). A stored create response is replayed for this long, so a
+    # client that retries after a network blip gets the original resource, never a duplicate.
+    idempotency_ttl_seconds: int = 24 * 60 * 60  # 24 hours
+
+    # Rate limiting (milestone 4). Fixed window per principal. The default is generous; a low
+    # value is used in the dedicated rate-limit test. Set enabled=False to turn it off entirely.
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 300
+    rate_limit_window_seconds: int = 60
+
+    # Webhooks (milestone 4). State changes are signed with HMAC-SHA256 and delivered by a
+    # background worker with exponential backoff; a job that keeps failing is dead-lettered.
+    webhook_delivery_timeout_seconds: float = 5.0
+    webhook_max_attempts: int = 5
+    webhook_backoff_base_seconds: float = 1.0
+    webhook_backoff_cap_seconds: float = 300.0
+    webhook_signature_tolerance_seconds: int = 300
+    # The in-process worker is off by default so tests and `make dev` stay deterministic; run it
+    # explicitly with `python -m appointments_api.workers.webhooks`, or set this true.
+    webhook_worker_enabled: bool = False
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
