@@ -21,6 +21,7 @@ from appointments_api.db import get_redis, get_session
 from appointments_api.enums import UserRole
 from appointments_api.models import Device, User
 from appointments_api.repositories.appointments import AppointmentRepository
+from appointments_api.repositories.audit_log import AuditLogRepository
 from appointments_api.repositories.clinicians import ClinicianRepository
 from appointments_api.repositories.clinics import ClinicRepository
 from appointments_api.repositories.devices import DeviceRepository
@@ -65,6 +66,10 @@ def get_service_repository(session: SessionDep) -> ServiceRepository:
 
 def get_appointment_repository(session: SessionDep) -> AppointmentRepository:
     return AppointmentRepository(session)
+
+
+def get_audit_log_repository(session: SessionDep) -> AuditLogRepository:
+    return AuditLogRepository(session)
 
 
 def get_token_service(redis: RedisDep, settings: SettingsDep) -> TokenService:
@@ -162,6 +167,7 @@ ClinicRepoDep = Annotated[ClinicRepository, Depends(get_clinic_repository)]
 ClinicianRepoDep = Annotated[ClinicianRepository, Depends(get_clinician_repository)]
 ServiceRepoDep = Annotated[ServiceRepository, Depends(get_service_repository)]
 AppointmentRepoDep = Annotated[AppointmentRepository, Depends(get_appointment_repository)]
+AuditLogRepoDep = Annotated[AuditLogRepository, Depends(get_audit_log_repository)]
 TokenServiceDep = Annotated[TokenService, Depends(get_token_service)]
 IdempotencyServiceDep = Annotated[IdempotencyService, Depends(get_idempotency_service)]
 WebhookSubscriptionRepoDep = Annotated[

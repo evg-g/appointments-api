@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, time
-from typing import Annotated
+from typing import Annotated, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
@@ -408,3 +408,21 @@ class ExcursionOut(BaseModel):
     peak_temperature_c: float
     acknowledged_by: uuid.UUID | None
     acknowledged_at: datetime | None
+
+
+# ---- audit log ----
+
+
+class AuditLogEntryOut(BaseModel):
+    """A single append-only audit record. ``before``/``after`` carry the JSONB change snapshots."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    actor_id: uuid.UUID | None
+    action: str
+    entity_type: str
+    entity_id: str
+    before: dict[str, Any] | None
+    after: dict[str, Any] | None
+    created_at: datetime

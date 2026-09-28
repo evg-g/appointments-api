@@ -2,6 +2,20 @@
 
 Honest list of what is deliberately incomplete, and why. Updated as milestones land.
 
+## Audit log has no write instrumentation
+
+The `audit_log` table exists (migration 0001) and now has a read API — the admin-only,
+keyset-paginated, filterable `GET /api/v1/audit-log` added for the web audit-log page (milestone 13,
+ADR 0015). But **nothing writes to it yet**: no service records an entry on appointment
+create/transition/cancel, device provisioning, or excursion changes. So the endpoint returns an empty
+list in production; the web app seeds rows only in its MSW mock so the page is demonstrable and
+tested.
+
+**To close:** add an audit-writer (a small service invoked from the domain state changes, ideally via
+the same transaction as the change, mirroring the webhook-outbox direction) that records
+`actor_id/action/entity_type/entity_id/before/after`. Deferred so milestone 13 stays a web milestone;
+the read side is contract-driven and ready for the writer.
+
 ## CLINIC_ADMIN is not clinic-scoped yet
 
 The data model has no link between a `CLINIC_ADMIN` user and the clinic they administer (only

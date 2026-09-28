@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from datetime import datetime
 
 import httpx
 import pytest
@@ -188,6 +189,32 @@ def seed(app: FastAPI):  # type: ignore[no-untyped-def]
                 session.add(service)
                 await session.commit()
                 return service.id
+
+        async def audit(
+            self,
+            *,
+            action: str = "appointment.created",
+            entity_type: str = "appointment",
+            entity_id: str | None = None,
+            actor_id: uuid.UUID | None = None,
+            created_at: datetime | None = None,
+        ) -> uuid.UUID:
+            from appointments_api.models import AuditLogEntry
+
+            async with maker() as session:
+                entry = AuditLogEntry(
+                    actor_id=actor_id,
+                    action=action,
+                    entity_type=entity_type,
+                    entity_id=entity_id or uuid.uuid4().hex,
+                    before=None,
+                    after={"status": "REQUESTED"},
+                )
+                if created_at is not None:
+                    entry.created_at = created_at
+                session.add(entry)
+                await session.commit()
+                return entry.id
 
     return Seeder()
 
