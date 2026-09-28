@@ -15,7 +15,7 @@ design, testing, and CI/CD.
 
 ## Status
 
-Through milestone 7. Implemented so far:
+Complete. What this repo ships:
 
 - Domain core: models, migrations, the double-booking exclusion constraint, the appointment state
   machine, and DST-aware availability (milestone 2).
@@ -31,8 +31,22 @@ Through milestone 7. Implemented so far:
   smoke + Locust load gates. See `docs/CI_CD.md` and `docs/DEPLOYMENT.md`.
 - Contract publication (milestone 7): the served OpenAPI is committed at `contracts/openapi.json`
   with a drift gate and an `oasdiff` breaking-change gate. See `docs/CONTRACT_WORKFLOW.md`.
+- Telemetry ingestion (milestone 10): an MQTT worker + HTTP batch endpoint feeding one idempotent,
+  order-independent ingestion service; a server-side excursion engine held to a shared fixture set
+  with the device; device provisioning, time-series downsampling, excursion acknowledge, and an SSE
+  stream. The device-owned telemetry contract is vendored and drift-gated. See `docs/TELEMETRY.md`.
+- An admin-only audit-log read endpoint (milestone 13 addition). See `docs/adr/0015-*`.
 
-Still to come (see the top-level `PLAN.md`): the device repo, telemetry ingestion, and the web app.
+## Docs
+
+- [`docs/DIAGRAMS.md`](docs/DIAGRAMS.md) — the visual model (state machines, auth flow, and links)
+- [`docs/TESTING.md`](docs/TESTING.md) — the test pyramid, and mock vs stub vs fake vs spy
+- [`docs/API_TESTING_GUIDE.md`](docs/API_TESTING_GUIDE.md) — testing by topic, with runnable
+  [`requests/*.http`](requests)
+- [`docs/EXERCISES.md`](docs/EXERCISES.md) — break-it-on-purpose exercises
+- [`docs/CI_CD.md`](docs/CI_CD.md), [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md),
+  [`docs/CONTRACT_WORKFLOW.md`](docs/CONTRACT_WORKFLOW.md), [`docs/ERROR_CATALOG.md`](docs/ERROR_CATALOG.md),
+  [`docs/TELEMETRY.md`](docs/TELEMETRY.md), and the ADRs in [`docs/adr/`](docs/adr)
 
 ## Quick start
 
@@ -51,6 +65,7 @@ Then open http://localhost:8000/health/live.
 src/appointments_api/   # application code (api/ -> services/ -> repositories/ -> models/)
 tests/                  # unit / integration / contract / property / load / security
 docs/                   # ADRs and learning docs
+requests/               # hand-runnable .http files mirroring the automated tests
 ```
 
 ## Conventions

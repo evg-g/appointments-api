@@ -1,0 +1,55 @@
+### Webhooks: admin-only subscription CRUD
+### Mirrors tests/integration/test_webhooks_api.py. Delivery + signing is covered by the worker
+### tests (tests/unit/…webhooks and tests/integration). See docs/adr/0010-signed-webhooks-and-delivery-worker.md.
+
+@baseUrl = http://localhost:8000
+
+### Admin login
+# @name adminLogin
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@aurora-clinic.com",
+  "password": "password123"
+}
+
+### A clinic to scope the subscription to
+# @name clinics
+GET {{baseUrl}}/api/v1/clinics?limit=1
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+
+### Create a subscription. The `secret` is used to sign deliveries (HMAC-SHA256, X-Signature).
+# @name sub
+POST {{baseUrl}}/api/v1/webhooks/subscriptions
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "clinic_id": "{{clinics.response.body.data.0.id}}",
+  "url": "https://example.com/webhooks/aurora",
+  "secret": "whsec_demo_do_not_use_in_prod",
+  "event_types": ["appointment.created", "appointment.cancelled"]
+}
+
+### List subscriptions
+GET {{baseUrl}}/api/v1/webhooks/subscriptions
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+
+### Delete it
+DELETE {{baseUrl}}/api/v1/webhooks/subscriptions/{{sub.response.body.id}}
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+
+### A patient may NOT manage subscriptions — expect 403
+# @name patientLogin
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "patient@aurora-clinic.com",
+  "password": "password123"
+}
+
+###
+GET {{baseUrl}}/api/v1/webhooks/subscriptions
+Authorization: Bearer {{patientLogin.response.body.access_token}}
