@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 from fastapi import Depends, Header, Query
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -176,14 +177,25 @@ WebhookSubscriptionRepoDep = Annotated[
 WebhookDispatcherDep = Annotated[WebhookDispatcher, Depends(get_webhook_dispatcher)]
 
 
+# Declared as an OpenAPI security scheme (not a plain header parameter) so Swagger UI shows an
+# Authorize button and generated clients know the operation needs a bearer token. auto_error is
+# off so a missing or non-Bearer header still raises our problem+json 401, not FastAPI's default.
+bearer_scheme = HTTPBearer(
+    scheme_name="BearerAuth",
+    bearerFormat="JWT",
+    description="Access token from POST /api/v1/auth/login.",
+    auto_error=False,
+)
+
+
 async def get_current_user(
     users: UserRepoDep,
     settings: SettingsDep,
-    authorization: Annotated[str | None, Header()] = None,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> User:
-    if not authorization or not authorization.lower().startswith("bearer "):
+    if credentials is None or not credentials.credentials.strip():
         raise UnauthorizedError("Missing or malformed Authorization header.")
-    token = authorization[len("bearer ") :].strip()
+    token = credentials.credentials.strip()
     try:
         claims = decode_access_token(token, settings=settings)
     except TokenError as exc:
