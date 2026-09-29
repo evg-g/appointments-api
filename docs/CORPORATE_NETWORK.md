@@ -33,3 +33,18 @@ export SSL_CERT_FILE=/path/to/corp-root-ca.pem
 ```
 
 These belong in your shell, not in the repo or the image.
+
+### uv also needs system certs enabled
+
+`uv` uses rustls, which does **not** read `SSL_CERT_FILE` on its own. On a TLS-inspecting proxy a plain
+`make setup` (`uv sync`) fails with `invalid peer certificate: UnknownIssuer`. Point uv at the OS trust
+store (where the corporate CA already lives) as well:
+
+```bash
+export UV_SYSTEM_CERTS=1        # older uv: UV_NATIVE_TLS=1 (now deprecated)
+make setup
+```
+
+Verified: with `UV_SYSTEM_CERTS=1` a clean clone of this repo bootstraps and the no-Docker gate
+(`make test` + `make contract-check`) runs green. As with everything here, this is a local concern —
+GitHub-hosted CI has a clean TLS path and needs none of it.

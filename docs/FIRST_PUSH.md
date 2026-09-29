@@ -33,6 +33,7 @@ gh api -X PUT repos/evg-g/appointments-api/branches/main/protection \
       "unit tests (3.13)",
       "integration tests (testcontainers)",
       "coverage gate (services/ + api/)",
+      "contract (OpenAPI drift + oasdiff)",
       "docker build",
       "security (audit, scan, secrets, SBOM)",
       "CodeQL (static analysis)"
@@ -46,6 +47,15 @@ gh api -X PUT repos/evg-g/appointments-api/branches/main/protection \
   "allow_deletions": false
 }
 JSON
+```
+
+## 2a. Create the `breaking-change` label
+
+The contract gate lets a deliberate breaking API change through only when the PR carries this label:
+
+```bash
+gh label create breaking-change --color B60205 \
+  --description "Intentional breaking API contract change (requires a version bump)"
 ```
 
 ## 3. Create the deployment environments
