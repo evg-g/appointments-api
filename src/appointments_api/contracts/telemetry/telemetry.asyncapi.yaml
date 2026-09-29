@@ -1,0 +1,139 @@
+asyncapi: 3.0.0
+info:
+  title: Aurora Cold-Chain Telemetry
+  version: 2.0.0
+  description: >
+    The MQTT contract between Aurora cold-chain devices and the appointments-api ingestion worker.
+    The device repo (aurora-sensor-agent) owns this document and the referenced JSON Schema
+    (telemetry.schema.json); the API repo vendors both and its CI fails on drift. Payloads carry a
+    schema version; the server accepts the current version and the previous one so device and server
+    deploy independently.
+  license:
+    name: MIT
+
+servers:
+  mosquitto:
+    host: 'localhost:1883'
+    protocol: mqtt
+    description: Local Mosquitto broker used in development and the SIL test tier.
+
+defaultContentType: application/json
+
+channels:
+  telemetry:
+    address: 'aurora/v1/clinic/{clinicId}/device/{deviceId}/telemetry'
+    description: A device publishes batches of readings here.
+    parameters:
+      clinicId:
+        description: The clinic that owns the device.
+      deviceId:
+        description: The device's stable id.
+    messages:
+      telemetryBatch:
+        $ref: '#/components/messages/telemetryBatch'
+  health:
+    address: 'aurora/v1/clinic/{clinicId}/device/{deviceId}/health'
+    description: Periodic device health beacon.
+    parameters:
+      clinicId:
+        description: The clinic that owns the device.
+      deviceId:
+        description: The device's stable id.
+    messages:
+      healthBeacon:
+        $ref: '#/components/messages/healthBeacon'
+  config:
+    address: 'aurora/v1/clinic/{clinicId}/device/{deviceId}/config'
+    description: The server pushes threshold/config updates to a device (retained).
+    parameters:
+      clinicId:
+        description: The clinic that owns the device.
+      deviceId:
+        description: The device's stable id.
+    messages:
+      configUpdate:
+        $ref: '#/components/messages/configUpdate'
+
+operations:
+  ingestTelemetry:
+    action: receive
+    channel:
+      $ref: '#/channels/telemetry'
+    summary: The API ingests telemetry batches (idempotent, order-independent).
+    messages:
+      - $ref: '#/channels/telemetry/messages/telemetryBatch'
+  ingestHealth:
+    action: receive
+    channel:
+      $ref: '#/channels/health'
+    summary: The API records device health beacons.
+    messages:
+      - $ref: '#/channels/health/messages/healthBeacon'
+  pushConfig:
+    action: send
+    channel:
+      $ref: '#/channels/config'
+    summary: The API pushes a threshold/config update to a device.
+    messages:
+      - $ref: '#/channels/config/messages/configUpdate'
+
+components:
+  messages:
+    telemetryBatch:
+      name: telemetryBatch
+      title: Telemetry batch
+      contentType: application/json
+      summary: A batch of readings with a device-generated idempotency key.
+      payload:
+        $ref: './telemetry.schema.json'
+    healthBeacon:
+      name: healthBeacon
+      title: Device health beacon
+      contentType: application/json
+      payload:
+        type: object
+        required: [v, device_id, firmware_version, buffer_depth, uptime_seconds]
+        additionalProperties: false
+        properties:
+          v:
+            type: integer
+            enum: [1, 2]
+          device_id:
+            type: string
+            minLength: 1
+          firmware_version:
+            type: string
+          buffer_depth:
+            type: integer
+            minimum: 0
+            description: Number of readings still buffered locally (unsent).
+          uptime_seconds:
+            type: integer
+            minimum: 0
+          last_error:
+            type: [string, 'null']
+    configUpdate:
+      name: configUpdate
+      title: Threshold/config update
+      contentType: application/json
+      payload:
+        type: object
+        required: [v, min_temperature_c, max_temperature_c, dwell_minutes, recovery_minutes]
+        additionalProperties: false
+        properties:
+          v:
+            type: integer
+            enum: [1, 2]
+          min_temperature_c:
+            type: number
+          max_temperature_c:
+            type: number
+          dwell_minutes:
+            type: number
+            exclusiveMinimum: 0
+          recovery_minutes:
+            type: number
+            exclusiveMinimum: 0
+          sample_interval_seconds:
+            type: integer
+            minimum: 1

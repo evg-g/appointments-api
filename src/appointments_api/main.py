@@ -21,11 +21,15 @@ from appointments_api.api.errors import register_error_handlers
 from appointments_api.api.middleware import rate_limit_middleware
 from appointments_api.api.routers import (
     appointments,
+    audit_log,
     auth,
     availability,
     clinicians,
     clinics,
+    devices,
     services,
+    streams,
+    telemetry,
     users,
     webhooks,
 )
@@ -153,6 +157,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         availability,
         appointments,
         webhooks,
+        devices,
+        telemetry,
+        streams,
+        audit_log,
     ):
         app.include_router(module.router, prefix=API_PREFIX)
 

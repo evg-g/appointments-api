@@ -36,3 +36,29 @@ class Weekday(IntEnum):
     FRIDAY = 4
     SATURDAY = 5
     SUNDAY = 6
+
+
+class DeviceStatus(StrEnum):
+    """Lifecycle of a cold-chain sensor node.
+
+    ``PROVISIONED``  registered, credentials issued, not yet reporting.
+    ``ACTIVE``       reporting telemetry.
+    ``DISABLED``     administratively silenced (credentials rejected, telemetry refused).
+    ``RETIRED``      decommissioned; kept for historical telemetry, never reactivated.
+    """
+
+    PROVISIONED = "PROVISIONED"
+    ACTIVE = "ACTIVE"
+    DISABLED = "DISABLED"
+    RETIRED = "RETIRED"
+
+
+class ExcursionDirection(StrEnum):
+    """Which rail of the safe temperature band a breach crossed.
+
+    Values match the device's ``logic.excursion.ExcursionDirection`` (lower-case) so the shared
+    excursion fixtures compare byte-for-byte across the two implementations.
+    """
+
+    LOW = "low"
+    HIGH = "high"

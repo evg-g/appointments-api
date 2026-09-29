@@ -22,6 +22,7 @@ from appointments_api.services.errors import (
     DomainError,
     IllegalTransitionError,
 )
+from appointments_api.services.telemetry.errors import DeviceInactiveError, DeviceNotFoundError
 
 PROBLEM_BASE_URI = "https://aurora.example/problems"
 PROBLEM_CONTENT_TYPE = "application/problem+json"
@@ -197,6 +198,16 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(DomainError)
     async def _domain(request: Request, exc: DomainError) -> JSONResponse:
         problem = ValidationProblem(detail=str(exc))
+        return _json(problem.to_problem(request.url.path))
+
+    @app.exception_handler(DeviceNotFoundError)
+    async def _device_not_found(request: Request, exc: DeviceNotFoundError) -> JSONResponse:
+        problem = NotFoundError(detail=str(exc))
+        return _json(problem.to_problem(request.url.path))
+
+    @app.exception_handler(DeviceInactiveError)
+    async def _device_inactive(request: Request, exc: DeviceInactiveError) -> JSONResponse:
+        problem = ConflictError(detail=str(exc))
         return _json(problem.to_problem(request.url.path))
 
     @app.exception_handler(StaleDataError)

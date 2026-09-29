@@ -1,0 +1,66 @@
+{
+  "policy": {
+    "min_temperature_c": 2.0,
+    "max_temperature_c": 8.0,
+    "dwell_minutes": 15.0,
+    "recovery_minutes": 10.0
+  },
+  "note": "Shared excursion fixtures. Offsets are seconds from a common epoch; temperatures are °C. The device (logic.excursion.detect_excursions) and the server engine (milestone 10) must both reproduce the 'expected' excursions from each 'series'.",
+  "cases": [
+    {
+      "name": "steady_normal",
+      "description": "Always inside the band: no excursion.",
+      "series": [[0, 5.0], [300, 5.1], [600, 4.9], [900, 5.0], [1200, 5.2]],
+      "expected": []
+    },
+    {
+      "name": "short_spike_no_alert",
+      "description": "A door opening: out of range for less than dwell, then back. No alarm.",
+      "series": [[0, 5.0], [300, 5.0], [600, 10.0], [900, 10.0], [1200, 5.0], [1500, 5.0]],
+      "expected": []
+    },
+    {
+      "name": "sustained_high",
+      "description": "Out of range past dwell, then recovers past recovery: one closed HIGH excursion.",
+      "series": [
+        [0, 5.0], [300, 5.0], [600, 10.0], [900, 10.0], [1200, 10.0], [1500, 10.0],
+        [1800, 5.0], [2100, 5.0], [2400, 5.0]
+      ],
+      "expected": [
+        {"started_offset": 600, "ended_offset": 1800, "direction": "high", "peak_temperature_c": 10.0}
+      ]
+    },
+    {
+      "name": "sustained_low",
+      "description": "Below the band past dwell, then recovers: one closed LOW excursion.",
+      "series": [
+        [0, 4.0], [300, 4.0], [600, 0.0], [900, -0.5], [1200, 0.0], [1500, 0.0],
+        [1800, 4.0], [2100, 4.0], [2400, 4.0]
+      ],
+      "expected": [
+        {"started_offset": 600, "ended_offset": 1800, "direction": "low", "peak_temperature_c": -0.5}
+      ]
+    },
+    {
+      "name": "flapping_stays_one_excursion",
+      "description": "Briefly back in range (< recovery) does not clear: still one excursion.",
+      "series": [
+        [0, 5.0], [300, 5.0], [600, 10.0], [900, 10.0], [1200, 10.0], [1500, 10.0],
+        [1800, 5.0], [2100, 10.0], [2400, 10.0], [2700, 5.0], [3000, 5.0], [3300, 5.0]
+      ],
+      "expected": [
+        {"started_offset": 600, "ended_offset": 2700, "direction": "high", "peak_temperature_c": 10.0}
+      ]
+    },
+    {
+      "name": "open_at_end",
+      "description": "Series ends while still in excursion: one open excursion (ended_offset null).",
+      "series": [
+        [0, 5.0], [300, 5.0], [600, 10.0], [900, 10.0], [1200, 10.0], [1500, 11.0]
+      ],
+      "expected": [
+        {"started_offset": 600, "ended_offset": null, "direction": "high", "peak_temperature_c": 11.0}
+      ]
+    }
+  ]
+}

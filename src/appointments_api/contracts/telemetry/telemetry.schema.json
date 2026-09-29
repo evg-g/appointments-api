@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aurora.example/contracts/telemetry.schema.json",
+  "title": "Aurora telemetry batch envelope",
+  "description": "One uplink message from a single cold-chain device: a batch of readings with a device-generated idempotency key. This is the payload published on aurora/v1/clinic/{clinic_id}/device/{device_id}/telemetry and posted to the HTTP batch endpoint. The device repo owns this schema; the API repo vendors it and validates every inbound message against it.",
+  "type": "object",
+  "required": ["v", "device_id", "idempotency_key", "readings"],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "type": "integer",
+      "enum": [1, 2],
+      "description": "Payload schema version. The server accepts the current version (2) and the previous one (1), so device and server can be deployed independently. v2 adds the optional battery_pct field to a reading."
+    },
+    "device_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The device's stable id (a UUID string on the API side)."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SHA-256 over the batch's rows; identical across retries of the same rows so the server can drop a duplicate batch."
+    },
+    "readings": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/item" }
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["sequence", "reading"],
+      "additionalProperties": false,
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The device's monotonic reading number (its buffer row id). (device_id, sequence) is the server's idempotency key for a single reading."
+        },
+        "reading": { "$ref": "#/$defs/reading" }
+      }
+    },
+    "reading": {
+      "type": "object",
+      "required": ["v", "measured_at", "temperature_c", "humidity_pct"],
+      "additionalProperties": false,
+      "properties": {
+        "v": { "type": "integer", "enum": [1, 2] },
+        "measured_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The device clock at the moment of the reading, ISO-8601 UTC."
+        },
+        "temperature_c": { "type": "number" },
+        "humidity_pct": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "battery_pct": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Added in v2; absent in v1 payloads."
+        },
+        "raw_temperature": { "type": "integer", "description": "The raw 16-bit sensor word." },
+        "raw_humidity": { "type": "integer", "description": "The raw 16-bit sensor word." }
+      }
+    }
+  }
+}
