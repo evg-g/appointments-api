@@ -43,9 +43,6 @@ from tests.integration.conftest import (
     _migrate,  # noqa: F401
 )
 
-# FastAPI serves OpenAPI 3.1; Schemathesis 3.x gates 3.1 support behind this experimental flag.
-schemathesis.experimental.OPEN_API_3_1.enable()
-
 
 def _per_call_resource_lifespan(
     settings: Settings,
@@ -99,4 +96,4 @@ def api_schema(settings: Settings, admin_token: str) -> Any:
     """The OpenAPI schema Schemathesis fuzzes, served by an app with per-call resources."""
     app = create_app(settings)
     app.router.lifespan_context = _per_call_resource_lifespan(settings)
-    return schemathesis.from_asgi("/openapi.json", app)
+    return schemathesis.openapi.from_asgi("/openapi.json", app)
