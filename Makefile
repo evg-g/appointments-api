@@ -11,7 +11,7 @@ BASE_URL ?= http://localhost:8000
 .PHONY: help setup dev test test-integration test-property test-security test-contract lint fix \
 	typecheck coverage mutation ci-local clean migrate migrate-down migrate-sql \
 	lint-workflows build scan sbom seed smoke load stack-up stack-down \
-	contract contract-check contract-diff
+	contract contract-check contract-diff contract-telemetry mqtt-worker retention
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -48,6 +48,15 @@ contract-diff: ## Show breaking changes vs origin/main's committed contract (nee
 	@git show origin/main:contracts/openapi.json > /tmp/base-openapi.json 2>/dev/null || \
 		{ echo "no base contract on origin/main"; exit 0; }
 	$(OASDIFF) breaking /tmp/base-openapi.json contracts/openapi.json --fail-on ERR
+
+contract-telemetry: ## Fail if the vendored telemetry contract drifts from the device repo (spec §8)
+	$(UV) run python scripts/check_telemetry_contract.py
+
+mqtt-worker: ## Run the MQTT telemetry ingestion worker (needs a broker + DATABASE_URL/REDIS_URL)
+	$(UV) run python -m appointments_api.workers.telemetry_mqtt
+
+retention: ## Prune telemetry readings older than the retention window (TELEMETRY_RETENTION_DAYS)
+	$(UV) run python scripts/retention.py
 
 coverage: ## Run all tiers under coverage and enforce the services/+api/ gate (needs Docker)
 	$(UV) run coverage run -m pytest tests/unit tests/integration tests/security tests/property tests/contract

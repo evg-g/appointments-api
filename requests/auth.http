@@ -1,0 +1,56 @@
+### Auth: login, session, refresh rotation, reuse detection, logout
+### Mirrors tests/integration/test_auth_flows.py
+### Send the login request first — the rest reuse {{login.response.body.*}}.
+
+@baseUrl = http://localhost:8000
+
+### Log in — returns a short-lived access JWT and an opaque refresh token (starts a token family)
+# @name login
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@aurora-clinic.com",
+  "password": "password123"
+}
+
+### Who am I — use the access token
+GET {{baseUrl}}/api/v1/auth/me
+Authorization: Bearer {{login.response.body.access_token}}
+
+### Refresh — consumes the presented refresh token and issues a NEW one in the same family
+# @name refresh
+POST {{baseUrl}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "{{login.response.body.refresh_token}}"
+}
+
+### Reuse detection — present the ORIGINAL (now-consumed) refresh token again.
+### Expect 401: the whole family is revoked, because a replayed token is the classic sign of theft.
+POST {{baseUrl}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "{{login.response.body.refresh_token}}"
+}
+
+### After reuse detection, even the freshly-issued token is dead (family revoked). Expect 401.
+POST {{baseUrl}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "{{refresh.response.body.refresh_token}}"
+}
+
+### Logout — revoke the token's whole family (idempotent)
+POST {{baseUrl}}/api/v1/auth/logout
+Content-Type: application/json
+
+{
+  "refresh_token": "{{login.response.body.refresh_token}}"
+}
+
+### No token — expect 401 problem+json
+GET {{baseUrl}}/api/v1/auth/me

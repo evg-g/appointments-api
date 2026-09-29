@@ -25,6 +25,8 @@ from tests.security.conftest import ALL_ROLES
 _ALL = frozenset(ALL_ROLES)
 _ADMIN = frozenset({"PLATFORM_ADMIN"})
 _CLINIC_STAFF = frozenset({"CLINIC_ADMIN", "PLATFORM_ADMIN"})
+# Telemetry reads and excursion acknowledgement are for clinical staff, not patients.
+_STAFF = frozenset({"CLINICIAN", "CLINIC_ADMIN", "PLATFORM_ADMIN"})
 _RANDOM_ID = "00000000-0000-4000-8000-000000000000"
 
 
@@ -63,6 +65,19 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         _ALL,
         params={"clinician_id": _RANDOM_ID, "service_id": _RANDOM_ID, "day": "2030-01-01"},
     ),
+    # Telemetry (milestone 10). The batch-ingest and SSE endpoints are excluded here: the batch
+    # endpoint authenticates with a per-device secret (its own auth test lives in the integration
+    # tier), and the SSE stream cannot be called synchronously in a matrix (unbounded response).
+    Endpoint("POST", "/api/v1/devices", _CLINIC_STAFF, body={}),
+    Endpoint("GET", "/api/v1/devices", _STAFF),
+    Endpoint("GET", f"/api/v1/devices/{_RANDOM_ID}", _STAFF),
+    Endpoint("POST", f"/api/v1/devices/{_RANDOM_ID}/credentials:rotate", _CLINIC_STAFF),
+    Endpoint("GET", f"/api/v1/devices/{_RANDOM_ID}/health", _STAFF),
+    Endpoint("GET", f"/api/v1/devices/{_RANDOM_ID}/telemetry", _STAFF),
+    Endpoint("GET", f"/api/v1/devices/{_RANDOM_ID}/excursions", _STAFF),
+    Endpoint("POST", "/api/v1/threshold-policies", _CLINIC_STAFF, body={}),
+    Endpoint("GET", f"/api/v1/excursions/{_RANDOM_ID}", _STAFF),
+    Endpoint("POST", f"/api/v1/excursions/{_RANDOM_ID}:acknowledge", _STAFF),
 )
 
 

@@ -1,0 +1,114 @@
+### Telemetry: provision a device, ingest a batch (idempotent), read the series, excursions
+### Mirrors tests/integration/test_telemetry_*.py. See docs/TELEMETRY.md for the data path.
+### Send top to bottom.
+
+@baseUrl = http://localhost:8000
+
+### Admin login
+# @name adminLogin
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@aurora-clinic.com",
+  "password": "password123"
+}
+
+### A clinic to attach the device to
+# @name clinics
+GET {{baseUrl}}/api/v1/clinics?limit=1
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+
+### Provision a device — the response includes the one-time device secret. Save it.
+# @name provision
+POST {{baseUrl}}/api/v1/devices
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "clinic_id": "{{clinics.response.body.data.0.id}}",
+  "location_label": "Vaccine fridge A",
+  "hardware_version": "pi-zero-2w",
+  "firmware_version": "1.0.0"
+}
+
+### Set a threshold policy for the device (safe band 2–8 °C, 15 min dwell, 10 min recovery)
+POST {{baseUrl}}/api/v1/threshold-policies
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "device_id": "{{provision.response.body.device.id}}",
+  "min_temperature_c": 2,
+  "max_temperature_c": 8,
+  "dwell_minutes": 15,
+  "recovery_minutes": 10
+}
+
+### Ingest a batch — authenticated with the DEVICE secret, not a user token.
+### Only measured_at and temperature_c are required per reading. Expect 200 with a per-item result array.
+# @name batch
+POST {{baseUrl}}/api/v1/devices/{{provision.response.body.device.id}}/telemetry:batch
+X-Device-Secret: {{provision.response.body.secret}}
+Content-Type: application/json
+
+{
+  "idempotency_key": "batch-0001",
+  "v": 2,
+  "readings": [
+    { "sequence": 1, "reading": { "measured_at": "2026-09-28T08:00:00Z", "temperature_c": 4.3, "humidity_pct": 45 } },
+    { "sequence": 2, "reading": { "measured_at": "2026-09-28T08:05:00Z", "temperature_c": 4.4, "humidity_pct": 45 } }
+  ]
+}
+
+### Replay the SAME batch — idempotent. Duplicates are dropped by (device_id, sequence);
+### the result reports them as duplicates, not errors, and no rows are added.
+POST {{baseUrl}}/api/v1/devices/{{provision.response.body.device.id}}/telemetry:batch
+X-Device-Secret: {{provision.response.body.secret}}
+Content-Type: application/json
+
+{
+  "idempotency_key": "batch-0001",
+  "v": 2,
+  "readings": [
+    { "sequence": 1, "reading": { "measured_at": "2026-09-28T08:00:00Z", "temperature_c": 4.3, "humidity_pct": 45 } },
+    { "sequence": 2, "reading": { "measured_at": "2026-09-28T08:05:00Z", "temperature_c": 4.4, "humidity_pct": 45 } }
+  ]
+}
+
+### A reading from the future is rejected (per-item) — a broken device clock, not real data.
+POST {{baseUrl}}/api/v1/devices/{{provision.response.body.device.id}}/telemetry:batch
+X-Device-Secret: {{provision.response.body.secret}}
+Content-Type: application/json
+
+{
+  "idempotency_key": "batch-future",
+  "v": 2,
+  "readings": [
+    { "sequence": 99, "reading": { "measured_at": "2099-01-01T00:00:00Z", "temperature_c": 4.5 } }
+  ]
+}
+
+### Wrong secret — expect 401
+POST {{baseUrl}}/api/v1/devices/{{provision.response.body.device.id}}/telemetry:batch
+X-Device-Secret: not-the-secret
+Content-Type: application/json
+
+{ "v": 2, "readings": [] }
+
+### Read the time series, bucketed and aggregated
+GET {{baseUrl}}/api/v1/devices/{{provision.response.body.device.id}}/telemetry?bucket=5m&agg=avg
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+
+### Device health (last seen, buffer/series state)
+GET {{baseUrl}}/api/v1/devices/{{provision.response.body.device.id}}/health
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+
+### Open excursions for the device (none, if the readings stayed in band)
+GET {{baseUrl}}/api/v1/devices/{{provision.response.body.device.id}}/excursions?open_only=true
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+
+### Live stream (Server-Sent Events). Supports Last-Event-ID resume.
+GET {{baseUrl}}/api/v1/streams/telemetry
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+Accept: text/event-stream
