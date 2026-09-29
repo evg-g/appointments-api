@@ -72,7 +72,7 @@ Demo login: `admin@aurora-clinic.com` / `password123` (local demo only).
 
 | Tool | How | Notes |
 |---|---|---|
-| **Swagger UI** | http://localhost:8000/docs | Browse every endpoint and send requests from the browser. The spec declares no security scheme, so there is no *Authorize* button — use it for public endpoints (`/auth/login`, `/health/*`) and for reading the schemas. |
+| **Swagger UI** | http://localhost:8000/docs | Browse every endpoint and send requests from the browser. Run `POST /api/v1/auth/login`, copy `access_token`, click *Authorize*, and paste it (just the token, no `Bearer ` prefix). Protected endpoints then send it for you; they show a lock icon. |
 | **ReDoc** | http://localhost:8000/redoc | Read-only reference view of the same spec. |
 | **`.http` files** | [`requests/`](requests) | The recommended way. Open in VS Code with the [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) extension (or a JetBrains IDE) and click *Send Request*. Send the login request first; later requests reuse its token automatically. See [`requests/README.md`](requests/README.md). |
 | **Postman** | *Import* → *Link* → `http://localhost:8000/openapi.json` (or the committed [`contracts/openapi.json`](contracts/openapi.json)) | Postman builds a collection from the spec. Call `POST /api/v1/auth/login`, then set *Authorization* → *Bearer Token* to the returned `access_token` on the collection. |
