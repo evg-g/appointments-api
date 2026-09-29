@@ -3,9 +3,15 @@
 
 .DEFAULT_GOAL := help
 UV ?= uv
+ACTIONLINT ?= actionlint
+OASDIFF ?= oasdiff
+IMAGE ?= appointments-api:local
+BASE_URL ?= http://localhost:8000
 
-.PHONY: help setup dev test test-integration lint fix typecheck ci-local clean \
-	migrate migrate-down migrate-sql
+.PHONY: help setup dev test test-integration test-property test-security test-contract lint fix \
+	typecheck coverage mutation ci-local clean migrate migrate-down migrate-sql \
+	lint-workflows build scan sbom seed smoke load stack-up stack-down \
+	contract contract-check contract-diff contract-telemetry mqtt-worker retention
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -22,6 +28,46 @@ test: ## Run unit tests with coverage
 
 test-integration: ## Run integration tests (needs Docker for testcontainers)
 	$(UV) run pytest tests/integration -q
+
+test-property: ## Property-based tests: hypothesis + Schemathesis (needs Docker)
+	$(UV) run pytest tests/property -q
+
+test-security: ## Security tests: authz matrix, JWT, injection, mass-assignment (needs Docker)
+	$(UV) run pytest tests/security -q
+
+test-contract: ## Contract tests: the served OpenAPI matches contracts/openapi.json (no I/O)
+	$(UV) run pytest tests/contract -q
+
+contract: ## Regenerate contracts/openapi.json from the served schema
+	$(UV) run python scripts/export_openapi.py
+
+contract-check: ## Fail if contracts/openapi.json is stale vs the served schema
+	$(UV) run python scripts/export_openapi.py --check
+
+contract-diff: ## Show breaking changes vs origin/main's committed contract (needs oasdiff)
+	@git show origin/main:contracts/openapi.json > /tmp/base-openapi.json 2>/dev/null || \
+		{ echo "no base contract on origin/main"; exit 0; }
+	$(OASDIFF) breaking /tmp/base-openapi.json contracts/openapi.json --fail-on ERR
+
+contract-telemetry: ## Fail if the vendored telemetry contract drifts from the device repo (spec §8)
+	$(UV) run python scripts/check_telemetry_contract.py
+
+mqtt-worker: ## Run the MQTT telemetry ingestion worker (needs a broker + DATABASE_URL/REDIS_URL)
+	$(UV) run python -m appointments_api.workers.telemetry_mqtt
+
+retention: ## Prune telemetry readings older than the retention window (TELEMETRY_RETENTION_DAYS)
+	$(UV) run python scripts/retention.py
+
+coverage: ## Run all tiers under coverage and enforce the services/+api/ gate (needs Docker)
+	$(UV) run coverage run -m pytest tests/unit tests/integration tests/security tests/property tests/contract
+	$(UV) run coverage json -o coverage.json
+	$(UV) run coverage report
+	$(UV) run python scripts/check_coverage.py
+
+mutation: ## Mutation-test services/ with the unit suite and enforce the baseline
+	$(UV) run mutmut run
+	$(UV) run mutmut export-cicd-stats
+	$(UV) run python scripts/check_mutation.py
 
 lint: ## Lint and check formatting
 	$(UV) run ruff check .
@@ -43,7 +89,43 @@ migrate-down: ## Roll back the most recent migration
 migrate-sql: ## Render the full migration as SQL without a database (offline)
 	$(UV) run alembic upgrade head --sql
 
-ci-local: lint typecheck test ## Run the full PR gate set locally
+lint-workflows: ## Lint GitHub Actions workflows (actionlint) and YAML (yamllint)
+	$(ACTIONLINT) -color
+	$(UV) run yamllint .github/ docker-compose.yml docker-compose.prod.yml
+
+build: ## Build the Docker image (the same multi-stage build CI runs)
+	docker build -t $(IMAGE) .
+
+scan: build ## Trivy filesystem + image scan (fail on HIGH/CRITICAL); needs trivy installed
+	trivy fs --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 .
+	trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $(IMAGE)
+
+sbom: build ## Generate a CycloneDX SBOM from the image; needs trivy installed
+	trivy image --format cyclonedx --output sbom.cdx.json $(IMAGE)
+
+stack-up: ## Bring up the full local stack (Postgres + Redis + API + migrations)
+	docker compose up -d --build
+
+stack-down: ## Tear down the local stack and its volumes
+	docker compose down -v
+
+seed: ## Seed the demo dataset into the database in DATABASE_URL
+	$(UV) run python scripts/seed.py
+
+smoke: ## Run the post-deploy smoke test against BASE_URL (default: local)
+	$(UV) run python scripts/smoke_test.py --base-url $(BASE_URL)
+
+load: ## Load smoke: bring up the stack, seed, run Locust, enforce the p95 budget, tear down
+	RATE_LIMIT_ENABLED=false docker compose up -d --build
+	@echo "waiting for readiness..."; \
+	for _ in $$(seq 1 30); do curl -fsS $(BASE_URL)/health/ready >/dev/null && break || sleep 2; done
+	docker compose exec -T api python scripts/seed.py
+	$(UV) run locust -f tests/load/locustfile.py --headless -u 20 -r 5 -t 30s \
+		--host $(BASE_URL) --csv load --only-summary
+	$(UV) run python scripts/check_load.py --csv-prefix load
+	docker compose down -v
+
+ci-local: lint lint-workflows typecheck coverage ## Run the full PR gate set locally (lint, workflow lint, types, all tiers + coverage gate; needs Docker)
 
 clean: ## Remove caches and build artifacts
 	rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage coverage.xml dist build

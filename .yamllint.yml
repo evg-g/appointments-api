@@ -1,0 +1,18 @@
+# yamllint config for CI/workflow YAML. Tuned for GitHub Actions:
+#   - `on:` is a valid key, not the boolean "on" (truthy check off).
+#   - workflow lines are often long (expressions, cache globs), so line-length is a warning.
+extends: default
+
+rules:
+  line-length:
+    max: 160
+    level: warning
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
+  document-start: disable
+  indentation:
+    spaces: 2
+    indent-sequences: consistent

@@ -13,7 +13,12 @@ Every error response uses `application/problem+json` (RFC 9457). The body always
 | `not-found` | 404 | The addressed resource does not exist (or you may not see it). |
 | `conflict` | 409 | A state conflict: an illegal appointment status transition, or a generic integrity conflict. |
 | `slot-unavailable` | 409 | The requested time overlaps an existing appointment for that clinician (service-layer check, and the DB exclusion constraint under a race). |
+| `idempotency-conflict` | 409 | A request with the same `Idempotency-Key` is still being processed; retry shortly. |
+| `precondition-failed` | 412 | The `If-Match` ETag did not match the resource's current version (someone changed it first). |
+| `precondition-required` | 428 | A mutating request (`transition`/`cancel`) omitted the required `If-Match` header. |
 | `validation-error` | 422 | Request body/query failed validation, or a business rule rejected the input (e.g. time outside working hours). `errors[]` lists the offending fields. |
+| `idempotency-key-reused` | 422 | An `Idempotency-Key` was replayed with a different request body. |
+| `rate-limited` | 429 | The principal exceeded its rate-limit window. Carries `Retry-After` and `RateLimit-*` headers. |
 
 ## Examples
 
@@ -41,3 +46,56 @@ Double-booking under load:
   "instance": "/api/v1/appointments"
 }
 ```
+
+Stale conditional update (ETag/If-Match):
+
+```json
+{
+  "type": "https://aurora.example/problems/precondition-failed",
+  "title": "Precondition failed",
+  "status": 412,
+  "detail": "The appointment has changed since you last read it; re-read it and retry.",
+  "instance": "/api/v1/appointments/1f.../transition"
+}
+```
+
+Rate limited (headers: `Retry-After`, `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`):
+
+```json
+{
+  "type": "https://aurora.example/problems/rate-limited",
+  "title": "Too many requests",
+  "status": 429,
+  "detail": "Rate limit exceeded; slow down and retry after the indicated delay.",
+  "instance": "/api/v1/auth/me"
+}
+```
+
+## Telemetry (milestone 10)
+
+Device telemetry endpoints authenticate with a per-device secret (`X-Device-Secret`), not a user JWT.
+A missing or wrong secret returns `unauthorized` (401). A device that exists but is disabled/retired
+returns `conflict` (409); telemetry for an unknown device id returns `not-found` (404).
+
+`POST /devices/{id}/telemetry:batch` is a bulk endpoint with partial-success semantics: it returns
+**200** with a `results` array, one entry per reading, rather than a single top-level status.
+
+```json
+{
+  "device_id": "1b4e28ba-2fa1-11d2-883f-0016d3cca427",
+  "accepted": 1,
+  "duplicates": 1,
+  "rejected": 1,
+  "open_excursions": 0,
+  "results": [
+    { "sequence": 10, "status": "accepted", "detail": null },
+    { "sequence": 11, "status": "duplicate", "detail": null },
+    { "sequence": 12, "status": "rejected", "detail": "measured_at is in the future" }
+  ]
+}
+```
+
+A future reading is `rejected` (spec §4 rule 10, realized per item since a bulk endpoint cannot map
+one bad row to a single 422 — see `KNOWN_GAPS.md`); a duplicate `(device_id, sequence)` is dropped as
+`duplicate`; a clock-skewed-but-past reading is `accepted` with a `detail` noting it was flagged. A
+wholly malformed request body still returns the standard `validation-error` (422).

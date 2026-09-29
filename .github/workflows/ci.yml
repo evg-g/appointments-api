@@ -1,15 +1,21 @@
 name: ci
 
+# Per-PR quality gate. Every job here is meant to be a required check (see docs/BRANCH_PROTECTION.md).
+# Heavier work (mutation, load, flake re-runs) lives in nightly.yml; release + deploy live in cd.yml.
+
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch:
 
+# Docs-only changes do not need the code gates. NOTE: because these jobs are required checks, see
+# docs/BRANCH_PROTECTION.md for how to keep docs-only PRs mergeable (they must not sit "pending").
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Minimal by default; jobs that need more widen their own block.
 permissions:
   contents: read
 
@@ -20,13 +26,41 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-      - run: uv sync --extra dev
+      - uses: ./.github/actions/setup-python-uv
       - run: uv run ruff check .
       - run: uv run ruff format --check .
+
+  commitlint:
+    name: PR title (conventional commits)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Check the PR title follows Conventional Commits
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # release-please derives the changelog from commit/PR titles, so a malformed title breaks
+          # the release notes. Enforce the shape here rather than pulling in a third-party action.
+          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9_-]+\))?!?: .+'
+          if [[ ! "$PR_TITLE" =~ $pattern ]]; then
+            echo "PR title '$PR_TITLE' is not a Conventional Commit." >&2
+            echo "Expected e.g.  feat(api): add telemetry batch endpoint" >&2
+            exit 1
+          fi
+
+  workflow-lint:
+    name: workflow lint (actionlint + yamllint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint
+        uses: docker://rhysd/actionlint:latest
+        with:
+          args: -color
+      - name: yamllint
+        run: pipx run yamllint .github/ docker-compose.yml docker-compose.prod.yml
 
   typecheck:
     name: mypy --strict
@@ -34,11 +68,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-      - run: uv sync --extra dev
+      - uses: ./.github/actions/setup-python-uv
       - run: uv run mypy
 
   test-unit:
@@ -51,13 +81,223 @@ jobs:
         python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: ./.github/actions/setup-python-uv
         with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-      - run: uv sync --extra dev --python ${{ matrix.python-version }}
-      - run: uv run pytest tests/unit -q --cov --cov-report=xml --cov-report=term-missing
-      - name: Coverage to job summary
+          python-version: ${{ matrix.python-version }}
+      - name: Run unit tests (no I/O)
+        run: >
+          uv run pytest tests/unit -q
+          --junitxml=junit-unit-${{ matrix.python-version }}.xml
+          --cov --cov-report=xml --cov-report=term-missing
+      - name: Summarize
+        if: always()
         run: |
-          echo "### Unit tests (Python ${{ matrix.python-version }})" >> "$GITHUB_STEP_SUMMARY"
-          echo "See the coverage report in the job log." >> "$GITHUB_STEP_SUMMARY"
+          echo "### Unit tests — Python ${{ matrix.python-version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "See coverage in the job log; XML uploaded as an artifact." >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload JUnit + coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-reports-${{ matrix.python-version }}
+          path: |
+            junit-unit-${{ matrix.python-version }}.xml
+            coverage.xml
+          retention-days: 14
+
+  test-integration:
+    name: integration tests (testcontainers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-uv
+      # ubuntu-latest ships a working Docker daemon, so testcontainers spins up real Postgres + Redis.
+      # docs/CI_CD.md explains the services:-containers alternative and the trade-off.
+      - name: Run integration tests
+        run: uv run pytest tests/integration -q --junitxml=junit-integration.xml
+      - name: Upload JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-reports
+          path: junit-integration.xml
+          retention-days: 14
+
+  coverage:
+    name: coverage gate (services/ + api/)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-uv
+      - name: Run all tiers under coverage
+        run: >
+          uv run coverage run -m pytest
+          tests/unit tests/integration tests/security tests/property tests/contract
+      - run: uv run coverage json -o coverage.json
+      - run: uv run coverage html
+      - run: uv run coverage report
+      - name: Enforce line >= 90% / branch >= 85% on services/ + api/
+        run: uv run python scripts/check_coverage.py >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: htmlcov/
+          retention-days: 14
+
+  contract:
+    name: contract (OpenAPI drift + oasdiff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the base commit for the oasdiff comparison
+      - uses: ./.github/actions/setup-python-uv
+      # 1. Drift: the served schema must equal the committed contracts/openapi.json.
+      - name: OpenAPI drift check
+        run: uv run pytest tests/contract -q
+      # 1b. Telemetry contract drift: the vendored device-owned schema must match its recorded
+      #     checksums (and, when the device repo is checked out alongside, be byte-identical to its
+      #     source). The OpenAPI gate in reverse — spec §8 rule 4.
+      - name: Telemetry contract drift check
+        run: uv run python scripts/check_telemetry_contract.py
+      - name: Publish OpenAPI as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi
+          path: contracts/openapi.json
+          retention-days: 90
+      # 2. Breaking-change gate: compare against the base branch's committed schema. Same oasdiff
+      #    binary and command as `make contract-diff`, so local and CI agree.
+      - name: Install oasdiff
+        run: |
+          mkdir -p bin
+          curl -fsSL -o /tmp/oasdiff.tgz \
+            https://github.com/oasdiff/oasdiff/releases/download/v1.32.1/oasdiff_1.32.1_linux_amd64.tar.gz
+          tar -xzf /tmp/oasdiff.tgz -C bin oasdiff
+      - name: Extract the base branch's OpenAPI
+        id: base
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git cat-file -e "$BASE_SHA:contracts/openapi.json" 2>/dev/null; then
+            git show "$BASE_SHA:contracts/openapi.json" > base-openapi.json
+            echo "has_base=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_base=false" >> "$GITHUB_OUTPUT" # first time the contract is introduced
+          fi
+      - name: oasdiff breaking-change check
+        if: >
+          github.event_name == 'pull_request' &&
+          steps.base.outputs.has_base == 'true' &&
+          !contains(github.event.pull_request.labels.*.name, 'breaking-change')
+        run: |
+          # Fails the PR on a breaking change. To land one deliberately, label the PR
+          # 'breaking-change' and bump the version (see docs/CONTRACT_WORKFLOW.md).
+          ./bin/oasdiff breaking base-openapi.json contracts/openapi.json --fail-on ERR
+
+  build:
+    name: docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (cached, load into the local daemon)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: appointments-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=ci-${{ github.sha }}
+            REVISION=${{ github.sha }}
+      - name: Save image for the security scan
+        run: docker save appointments-api:ci -o image.tar
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-tar
+          path: image.tar
+          retention-days: 1
+
+  security:
+    name: security (audit, scan, secrets, SBOM)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks scans full history
+      - uses: ./.github/actions/setup-python-uv
+      - name: pip-audit (known CVEs in dependencies)
+        run: uv run --with pip-audit pip-audit || echo "::warning::pip-audit reported advisories"
+      - name: gitleaks (secret scan)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Trivy filesystem scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Download built image
+        uses: actions/download-artifact@v4
+        with:
+          name: image-tar
+      - name: Load image
+        run: docker load -i image.tar
+      - name: Trivy image scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: appointments-api:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Generate CycloneDX SBOM from the image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: appointments-api:ci
+          format: cyclonedx
+          output: sbom.cdx.json
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
+          retention-days: 90
+
+  codeql:
+    name: CodeQL (static analysis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read # CodeQL reads the workflow run; required on private repos
+      security-events: write # required to upload results to the Security tab
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-and-quality
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3

@@ -17,7 +17,15 @@ venv/
 .coverage
 .coverage.*
 coverage.xml
+coverage.json
 htmlcov/
+.hypothesis/
+
+# Mutation testing (mutmut writes a mutated copy of the tree here)
+mutants/
+
+# Scratch logs from local runs
+_*.log
 
 # Env
 .env

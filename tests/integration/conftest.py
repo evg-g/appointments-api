@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from datetime import datetime
 
 import httpx
 import pytest
@@ -27,6 +28,11 @@ from appointments_api.main import create_app
 from appointments_api.security import hash_password
 
 _TABLES = (
+    "telemetry_readings",
+    "excursions",
+    "threshold_policies",
+    "devices",
+    "webhook_subscriptions",
     "audit_log",
     "appointments",
     "clinician_working_hours",
@@ -184,6 +190,32 @@ def seed(app: FastAPI):  # type: ignore[no-untyped-def]
                 await session.commit()
                 return service.id
 
+        async def audit(
+            self,
+            *,
+            action: str = "appointment.created",
+            entity_type: str = "appointment",
+            entity_id: str | None = None,
+            actor_id: uuid.UUID | None = None,
+            created_at: datetime | None = None,
+        ) -> uuid.UUID:
+            from appointments_api.models import AuditLogEntry
+
+            async with maker() as session:
+                entry = AuditLogEntry(
+                    actor_id=actor_id,
+                    action=action,
+                    entity_type=entity_type,
+                    entity_id=entity_id or uuid.uuid4().hex,
+                    before=None,
+                    after={"status": "REQUESTED"},
+                )
+                if created_at is not None:
+                    entry.created_at = created_at
+                session.add(entry)
+                await session.commit()
+                return entry.id
+
     return Seeder()
 
 
@@ -200,3 +232,26 @@ def login(client: httpx.AsyncClient):  # type: ignore[no-untyped-def]
         return token
 
     return _login
+
+
+@pytest.fixture
+async def booking_env(seed, login):  # type: ignore[no-untyped-def]
+    """A ready-to-book world: one clinic (open all week), one clinician, one service, and a
+    patient + admin token. Shared by the milestone-4 idempotency and ETag suites."""
+    all_week = [(wd, "06:00", "22:00") for wd in range(7)]
+    await seed.user(role="PLATFORM_ADMIN", email="admin@x.io")
+    patient_id = await seed.user(role="PATIENT", email="patient@x.io")
+    clinician_user = await seed.user(role="CLINICIAN", email="doc@x.io")
+    clinic_id = await seed.clinic(timezone="UTC", cutoff_hours=24)
+    clinician_id = await seed.clinician(
+        clinic_id=clinic_id, user_id=clinician_user, working_hours=all_week
+    )
+    service_id = await seed.service(clinic_id=clinic_id, duration_minutes=30)
+    return {
+        "patient_id": patient_id,
+        "clinic_id": clinic_id,
+        "clinician_id": clinician_id,
+        "service_id": service_id,
+        "patient_token": await login("patient@x.io"),
+        "admin_token": await login("admin@x.io"),
+    }

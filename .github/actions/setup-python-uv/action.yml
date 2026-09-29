@@ -1,0 +1,27 @@
+name: Setup Python + uv
+description: >
+  Install uv with a lockfile-keyed cache and sync the project's dependencies. Factored out so every
+  job installs deps the same way instead of copy-pasting the same four steps.
+
+inputs:
+  python-version:
+    description: Python version to use for the environment (passed to `uv sync --python`).
+    required: false
+    default: "3.12"
+  extra:
+    description: Optional-dependency group to install (from pyproject [project.optional-dependencies]).
+    required: false
+    default: "dev"
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv (with cache)
+      uses: astral-sh/setup-uv@v3
+      with:
+        enable-cache: true
+        # Cache key is derived from the lockfile, so it only busts when dependencies change.
+        cache-dependency-glob: uv.lock
+    - name: Sync dependencies
+      shell: bash
+      run: uv sync --frozen --extra ${{ inputs.extra }} --python ${{ inputs.python-version }}

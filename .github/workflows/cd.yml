@@ -1,0 +1,241 @@
+name: cd
+
+# Continuous delivery, on push to main.
+#
+# Flow:  release (release-please) → build + sign + push → deploy staging → smoke
+#        → manual approval (GitHub Environment) → deploy production → smoke.
+#
+# Zero-secrets behaviour (verified — see docs/CI_CD.md):
+#   - release, build, sign and GHCR push need no configured secrets: they use the built-in
+#     GITHUB_TOKEN and GitHub OIDC. cosign is keyless (OIDC), provenance is native attestation.
+#   - Every step that talks to Azure is guarded by `vars.DEPLOY_ENABLED == 'true'` and skips
+#     cleanly on a fork with nothing configured, so the whole workflow stays green.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Do NOT cancel an in-flight delivery; a half-cancelled deploy is worse than a queued one.
+concurrency:
+  group: cd-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ---------------------------------------------------------------------------------------------
+  # 1. Decide whether this push produces a release. release-please maintains a release PR from the
+  #    conventional-commit history; when that PR merges, it tags a semver release and this job
+  #    reports release_created=true with the version. Only then do we build, sign and deploy.
+  # ---------------------------------------------------------------------------------------------
+  release:
+    name: release-please
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create tags, releases, and the release PR
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+      version: ${{ steps.rp.outputs.version }}
+    steps:
+      - id: rp
+        uses: googleapis/release-please-action@v4
+        with:
+          release-type: python
+          package-name: appointments-api
+
+  # ---------------------------------------------------------------------------------------------
+  # 2. Build the release image, push it to GHCR tagged with semver + commit SHA, sign it keylessly
+  #    with cosign, and attach a provenance attestation. All of this works with no repo secrets.
+  # ---------------------------------------------------------------------------------------------
+  build-sign-push:
+    name: build + sign + push
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: release
+    if: needs.release.outputs.release_created == 'true'
+    permissions:
+      contents: read
+      packages: write # push to GHCR
+      id-token: write # cosign keyless signing + provenance
+      attestations: write # provenance attestation
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.release.outputs.tag_name }}
+            type=sha,format=long
+            type=raw,value=latest
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+          build-args: |
+            VERSION=${{ needs.release.outputs.version }}
+            REVISION=${{ github.sha }}
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Sign the image (keyless, OIDC)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  # ---------------------------------------------------------------------------------------------
+  # 3. Deploy to staging: authenticate to Azure with OIDC (no client secret), run migrations as a
+  #    separate pre-deploy step, roll the image, then smoke-test. Roll back on smoke failure.
+  #    Skips cleanly when DEPLOY_ENABLED is not set.
+  # ---------------------------------------------------------------------------------------------
+  deploy-staging:
+    name: deploy staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [release, build-sign-push]
+    if: needs.release.outputs.release_created == 'true' && vars.DEPLOY_ENABLED == 'true'
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_URL }}
+    permissions:
+      contents: read
+      id-token: write # Azure OIDC
+    steps:
+      - uses: actions/checkout@v4
+      - name: Azure login (OIDC — no stored client secret)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Run migrations (expand phase — separate, before the image rolls)
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az containerapp job start \
+              --name migrate-staging \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --image "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.release.outputs.version }}"
+      - name: Deploy new revision
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az containerapp update \
+              --name appointments-api-staging \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --image "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.release.outputs.version }}"
+      - uses: ./.github/actions/setup-python-uv
+      - name: Smoke test (/health/ready + one booking flow)
+        run: uv run python scripts/smoke_test.py --base-url "${{ vars.STAGING_URL }}"
+      - name: Roll back on smoke failure
+        if: failure()
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            # Reactivate the previous good revision so staging is never left broken.
+            prev=$(az containerapp revision list \
+              --name appointments-api-staging \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --query "reverse(sort_by([?properties.active], &properties.createdTime))[1].name" -o tsv)
+            if [ -n "$prev" ]; then
+              az containerapp revision activate \
+                --revision "$prev" \
+                --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
+            fi
+
+  # ---------------------------------------------------------------------------------------------
+  # 4. Production. The `production` environment carries a required-reviewers rule, so this job
+  #    pauses for manual approval before it runs (see docs/FIRST_PUSH.md).
+  # ---------------------------------------------------------------------------------------------
+  deploy-production:
+    name: deploy production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [release, build-sign-push, deploy-staging]
+    if: needs.release.outputs.release_created == 'true' && vars.DEPLOY_ENABLED == 'true'
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Run migrations (expand phase)
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az containerapp job start \
+              --name migrate-production \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --image "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.release.outputs.version }}"
+      - name: Deploy new revision
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az containerapp update \
+              --name appointments-api-production \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --image "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.release.outputs.version }}"
+      - uses: ./.github/actions/setup-python-uv
+      - name: Smoke test
+        run: uv run python scripts/smoke_test.py --base-url "${{ vars.PRODUCTION_URL }}"
+      - name: Roll back on smoke failure
+        if: failure()
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            prev=$(az containerapp revision list \
+              --name appointments-api-production \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --query "reverse(sort_by([?properties.active], &properties.createdTime))[1].name" -o tsv)
+            if [ -n "$prev" ]; then
+              az containerapp revision activate \
+                --revision "$prev" \
+                --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
+            fi

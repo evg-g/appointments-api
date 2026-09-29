@@ -1,0 +1,145 @@
+### Appointments: booking, Idempotency-Key replay, ETag/If-Match concurrency, pagination
+### Mirrors tests/integration/test_appointments_flows.py, _idempotency.py, and cursor tests.
+### Send the requests top to bottom — each reuses the previous named response.
+
+@baseUrl = http://localhost:8000
+
+### Log in as the patient (a patient books their own appointment)
+# @name patientLogin
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "patient@aurora-clinic.com",
+  "password": "password123"
+}
+
+### The patient's own id (needed as patient_id when booking)
+# @name patientMe
+GET {{baseUrl}}/api/v1/auth/me
+Authorization: Bearer {{patientLogin.response.body.access_token}}
+
+### Log in as the admin (confirming/transitioning is a staff action)
+# @name adminLogin
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@aurora-clinic.com",
+  "password": "password123"
+}
+
+### Find a clinic, service, and clinician from the seed
+# @name clinics
+GET {{baseUrl}}/api/v1/clinics?limit=1
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+
+# @name services
+GET {{baseUrl}}/api/v1/services?clinic_id={{clinics.response.body.data.0.id}}&limit=1
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+
+# @name clinicians
+GET {{baseUrl}}/api/v1/clinicians?clinic_id={{clinics.response.body.data.0.id}}&limit=1
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+
+### See available slots for a day (all-week clinician in the seed; pick any future weekday)
+GET {{baseUrl}}/api/v1/availability?clinician_id={{clinicians.response.body.data.0.id}}&service_id={{services.response.body.data.0.id}}&day=2026-10-05
+Authorization: Bearer {{patientLogin.response.body.access_token}}
+
+### Book — note the Idempotency-Key. Expect 201 with an ETag header.
+# @name book
+POST {{baseUrl}}/api/v1/appointments
+Authorization: Bearer {{patientLogin.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: demo-key-0001
+
+{
+  "clinic_id": "{{clinics.response.body.data.0.id}}",
+  "clinician_id": "{{clinicians.response.body.data.0.id}}",
+  "patient_id": "{{patientMe.response.body.id}}",
+  "service_id": "{{services.response.body.data.0.id}}",
+  "starts_at": "2026-10-05T09:00:00Z"
+}
+
+### Replay the SAME key with the SAME body — returns the ORIGINAL appointment, not a duplicate.
+### Look for the Idempotency-Replayed: true response header.
+POST {{baseUrl}}/api/v1/appointments
+Authorization: Bearer {{patientLogin.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: demo-key-0001
+
+{
+  "clinic_id": "{{clinics.response.body.data.0.id}}",
+  "clinician_id": "{{clinicians.response.body.data.0.id}}",
+  "patient_id": "{{patientMe.response.body.id}}",
+  "service_id": "{{services.response.body.data.0.id}}",
+  "starts_at": "2026-10-05T09:00:00Z"
+}
+
+### Reuse the SAME key with a DIFFERENT body — expect 422 (a key is bound to one request).
+POST {{baseUrl}}/api/v1/appointments
+Authorization: Bearer {{patientLogin.response.body.access_token}}
+Content-Type: application/json
+Idempotency-Key: demo-key-0001
+
+{
+  "clinic_id": "{{clinics.response.body.data.0.id}}",
+  "clinician_id": "{{clinicians.response.body.data.0.id}}",
+  "patient_id": "{{patientMe.response.body.id}}",
+  "service_id": "{{services.response.body.data.0.id}}",
+  "starts_at": "2026-10-12T09:00:00Z"
+}
+
+### Read the appointment — capture its ETag for the conditional writes below
+# @name getAppt
+GET {{baseUrl}}/api/v1/appointments/{{book.response.body.id}}
+Authorization: Bearer {{patientLogin.response.body.access_token}}
+
+### Confirm it (staff action) with the current ETag. Expect 200 and a NEW ETag.
+# @name confirm
+POST {{baseUrl}}/api/v1/appointments/{{book.response.body.id}}/transition
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+Content-Type: application/json
+If-Match: {{getAppt.response.headers.ETag}}
+
+{
+  "target_status": "CONFIRMED"
+}
+
+### Concurrency: transition again with the STALE ETag (the one before the confirm). Expect 412.
+POST {{baseUrl}}/api/v1/appointments/{{book.response.body.id}}/transition
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+Content-Type: application/json
+If-Match: {{getAppt.response.headers.ETag}}
+
+{
+  "target_status": "COMPLETED"
+}
+
+### Missing If-Match on a write — expect 428 Precondition Required
+POST {{baseUrl}}/api/v1/appointments/{{book.response.body.id}}/transition
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "target_status": "COMPLETED"
+}
+
+### Illegal transition (e.g. straight to NO_SHOW rules) — expect 409 for a move outside the machine
+POST {{baseUrl}}/api/v1/appointments/{{book.response.body.id}}/cancel
+Authorization: Bearer {{patientLogin.response.body.access_token}}
+Content-Type: application/json
+If-Match: {{confirm.response.headers.ETag}}
+
+{
+  "reason": "patient requested reschedule"
+}
+
+### Cursor pagination — first page
+# @name page1
+GET {{baseUrl}}/api/v1/appointments?limit=2
+Authorization: Bearer {{adminLogin.response.body.access_token}}
+
+### Next page — follow page.next_cursor. Stable even if rows are inserted mid-pagination (keyset).
+GET {{baseUrl}}/api/v1/appointments?limit=2&cursor={{page1.response.body.page.next_cursor}}
+Authorization: Bearer {{adminLogin.response.body.access_token}}

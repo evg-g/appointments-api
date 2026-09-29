@@ -117,19 +117,23 @@ async def test_transition_confirm_then_illegal_transition(
         headers=auth_header(env["patient_token"]),
     )
     appointment_id = created.json()["id"]
+    created_etag = created.headers["ETag"]
 
     confirm = await client.post(
         f"/api/v1/appointments/{appointment_id}/transition",
         json={"target_status": "CONFIRMED"},
-        headers=auth_header(env["admin_token"]),
+        headers={**auth_header(env["admin_token"]), "If-Match": created_etag},
     )
     assert confirm.status_code == 200
     assert confirm.json()["status"] == "CONFIRMED"
+    # The successful write bumped the version, so the ETag must have moved on.
+    confirm_etag = confirm.headers["ETag"]
+    assert confirm_etag != created_etag
 
     illegal = await client.post(
         f"/api/v1/appointments/{appointment_id}/transition",
         json={"target_status": "REQUESTED"},
-        headers=auth_header(env["admin_token"]),
+        headers={**auth_header(env["admin_token"]), "If-Match": confirm_etag},
     )
     assert illegal.status_code == 409
 
@@ -164,6 +168,9 @@ async def test_cancellation_window_enforced_for_patient_but_not_admin(
         headers=auth_header(env["patient_token"]),
     )
     near_id = near.json()["id"]
+    near_etag = near.headers["ETag"]
+    # The window rule is authorization, checked before the ETag precondition, so this 403 needs
+    # no If-Match.
     patient_cancel = await client.post(
         f"/api/v1/appointments/{near_id}/cancel",
         json={"reason": "cannot make it"},
@@ -175,7 +182,7 @@ async def test_cancellation_window_enforced_for_patient_but_not_admin(
     admin_cancel = await client.post(
         f"/api/v1/appointments/{near_id}/cancel",
         json={"reason": "clinic closed"},
-        headers=auth_header(env["admin_token"]),
+        headers={**auth_header(env["admin_token"]), "If-Match": near_etag},
     )
     assert admin_cancel.status_code == 200
     assert admin_cancel.json()["status"] == "CANCELLED"
@@ -187,10 +194,11 @@ async def test_cancellation_window_enforced_for_patient_but_not_admin(
         headers=auth_header(env["patient_token"]),
     )
     far_id = far.json()["id"]
+    far_etag = far.headers["ETag"]
     far_cancel = await client.post(
         f"/api/v1/appointments/{far_id}/cancel",
         json={},
-        headers=auth_header(env["patient_token"]),
+        headers={**auth_header(env["patient_token"]), "If-Match": far_etag},
     )
     assert far_cancel.status_code == 200
 

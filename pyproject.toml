@@ -5,9 +5,11 @@ description = "Aurora Clinic appointment scheduling and cold-chain monitoring AP
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "evgmongo-maker" }]
+authors = [{ name = "evg-g" }]
 dependencies = [
-    "fastapi>=0.115,<0.116",
+    "fastapi>=0.141,<0.142",
+    # Security floor: Starlette < 1.3.1 has HIGH CVEs (CVE-2025-62727, CVE-2026-48818, CVE-2026-54283).
+    "starlette>=1.3.1,<2",
     "uvicorn[standard]>=0.32,<0.33",
     "pydantic[email]>=2.9,<3",
     "pydantic-settings>=2.5,<3",
@@ -19,6 +21,13 @@ dependencies = [
     "pyjwt>=2.9,<3",
     "argon2-cffi>=23.1,<24",
     "redis>=5.0,<6",
+    # Runtime HTTP client: main.py + the webhook delivery worker use httpx.AsyncClient. It must be a
+    # runtime dependency, not dev-only, or the --no-dev production image fails to import at startup.
+    "httpx>=0.27,<0.28",
+    # Milestone 10 telemetry: jsonschema validates every inbound message against the vendored
+    # telemetry contract; aiomqtt is the async MQTT client the ingestion worker subscribes with.
+    "jsonschema>=4.23,<5",
+    "aiomqtt>=2.3,<3",
 ]
 
 [project.optional-dependencies]
@@ -26,13 +35,26 @@ dev = [
     "pytest>=8.3,<9",
     "pytest-asyncio>=0.24,<0.25",
     "pytest-cov>=5.0,<6",
+    "pytest-mock>=3.14,<4",
     "pytest-xdist>=3.6,<4",
-    "httpx>=0.27,<0.28",
     "ruff>=0.7,<0.8",
     "mypy>=1.13,<2",
     "freezegun>=1.5,<2",
     "testcontainers[postgres,redis]>=4.8,<5",
     "polyfactory>=2.17,<3",
+    "fakeredis>=2.25,<3",
+    "respx>=0.21,<0.22",
+    # Milestone 5: property-based, security, and mutation testing.
+    "hypothesis>=6.112,<7",
+    "schemathesis>=4.28,<5",
+    "mutmut>=3.2,<4",
+    # Milestone 6: CI/CD. yamllint checks workflow YAML locally (matches the CI workflow-lint job);
+    # locust drives the nightly load smoke; pip-audit runs the dependency CVE scan locally.
+    "yamllint>=1.35,<2",
+    "locust>=2.31,<3",
+    "pip-audit>=2.7,<3",
+    # Milestone 10: type stubs for jsonschema so mypy --strict stays clean.
+    "types-jsonschema>=4.23,<5",
 ]
 
 [build-system]
@@ -46,6 +68,8 @@ packages = ["src/appointments_api"]
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
+# mutmut writes a mutated copy of the tree here; never lint or format it.
+extend-exclude = ["mutants"]
 
 [tool.ruff.lint]
 # A curated set: pycodestyle/pyflakes, bugbear, imports, comprehensions,
@@ -63,21 +87,50 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_codes = true
 files = ["src", "tests"]
+exclude = ["^mutants/"]
 
 [[tool.mypy.overrides]]
 # testcontainers ships no type information.
 module = ["testcontainers.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# fakeredis ships no type information; respx's stubs are incomplete.
+module = ["fakeredis.*", "respx.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# schemathesis and mutmut ship no (complete) type information.
+module = ["schemathesis.*", "mutmut.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "property: property-based tests (hypothesis / Schemathesis).",
+    "security: security tests (authz matrix, JWT tampering, injection, mass-assignment).",
+]
 
 [tool.coverage.run]
 branch = true
 source = ["src/appointments_api"]
+# SQLAlchemy's async engine runs ORM calls across greenlet switches; without this, coverage
+# mis-attributes lines executed inside async request handlers.
+concurrency = ["greenlet"]
 
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
+
+[tool.mutmut]
+# Mutation testing is scoped to the pure business logic in services/ (spec milestone 5). The whole
+# package is copied so the mutated code can still import its siblings (enums, models, ...), but only
+# files under services/ are actually mutated. The fast, I/O-free unit tests are the runner: mutants
+# must be killed by logic tests, not by slow container-backed integration. The baseline kill rate is
+# documented in docs/TESTING.md and enforced by scripts/check_mutation.py.
+source_paths = ["src/appointments_api"]
+only_mutate = ["*/appointments_api/services/*"]
+pytest_add_cli_args_test_selection = ["tests/unit"]
+pytest_add_cli_args = ["-p", "no:cacheprovider", "-q"]
