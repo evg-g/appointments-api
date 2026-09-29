@@ -11,7 +11,7 @@ from appointments_api.models.base import Base
 
 async def keyset_page[M: Base](
     session: AsyncSession,
-    stmt: Select[tuple[M]],
+    stmt: Select[M],
     model: type[M],
     *,
     limit: int,
