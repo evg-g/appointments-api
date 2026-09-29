@@ -17,7 +17,7 @@ runs:
   using: composite
   steps:
     - name: Install uv (with cache)
-      uses: astral-sh/setup-uv@v3
+      uses: astral-sh/setup-uv@v7
       with:
         enable-cache: true
         # Cache key is derived from the lockfile, so it only busts when dependencies change.
