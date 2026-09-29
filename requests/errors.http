@@ -1,0 +1,59 @@
+### The error contract — RFC 9457 application/problem+json
+### Every error is a problem+json document with a stable `type` URI, `title`, `status`, `detail`,
+### `instance`, and (for validation) a machine-readable `errors[]`. See docs/ERROR_CATALOG.md.
+### Mirrors the security + functional integration tests.
+
+@baseUrl = http://localhost:8000
+
+### 401 — no credentials
+GET {{baseUrl}}/api/v1/appointments
+
+### 401 — a tampered/garbage bearer token
+GET {{baseUrl}}/api/v1/appointments
+Authorization: Bearer not.a.real.jwt
+
+### Log in as a patient for the authorization cases below
+# @name patientLogin
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "patient@aurora-clinic.com",
+  "password": "password123"
+}
+
+### 403 — a patient calling an admin-only endpoint
+POST {{baseUrl}}/api/v1/clinics
+Authorization: Bearer {{patientLogin.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "name": "Rogue Clinic",
+  "timezone": "America/Los_Angeles",
+  "address": "1 Nowhere St",
+  "cancellation_cutoff_hours": 24
+}
+
+### 404 — an appointment id that does not exist (well-formed uuid)
+GET {{baseUrl}}/api/v1/appointments/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{patientLogin.response.body.access_token}}
+
+### 422 — validation error with a field-level errors[] array (bad email, missing password)
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "not-an-email"
+}
+
+### 422 — a reserved/special-use email TLD is rejected by EmailStr (e.g. .test)
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "someone@example.test",
+  "password": "password123"
+}
+
+### For 409 (illegal state transition) and 412 (stale ETag), see appointments.http —
+### they need a booked appointment to act on.
