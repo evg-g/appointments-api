@@ -15,8 +15,8 @@ they fit together.
 
 A real scheduling + cold-chain domain, chosen so the tests have to solve genuine API
 problems (concurrency, time zones, idempotency, optimistic locking, telemetry ordering)
-instead of toy CRUD. The code is meant to be read and extended as a way to learn REST API
-design, testing, and CI/CD.
+instead of toy CRUD. The test suite is the point: every tier, from unit to load, runs in CI and
+fails the build when it breaks.
 
 ## Status
 
@@ -90,7 +90,7 @@ What to test, and why each flow is tested the way it is, is in
 ```
 src/appointments_api/   # application code (api/ -> services/ -> repositories/ -> models/)
 tests/                  # unit / integration / contract / property / load / security
-docs/                   # ADRs and learning docs
+docs/                   # ADRs and guides
 requests/               # hand-runnable .http files mirroring the automated tests
 ```
 
