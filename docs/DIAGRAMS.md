@@ -4,7 +4,7 @@ One page with the pictures that explain the backend. All diagrams are **Mermaid*
 on GitHub with no external image service and never break behind a restricted network.
 
 The system-level picture (all three repos and how telemetry flows between them) lives in the
-[top-level `README.md`](../../README.md). This page is the backend's own state machines and flows,
+[top-level `README.md`](https://github.com/evg-g/aurora). This page is the backend's own state machines and flows,
 plus links to the diagrams that already live next to the code they describe.
 
 - [Appointment state machine](#appointment-state-machine) — new here

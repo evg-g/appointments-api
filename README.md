@@ -1,9 +1,14 @@
 # appointments-api
 
+[![ci](https://github.com/evg-g/appointments-api/actions/workflows/ci.yml/badge.svg)](https://github.com/evg-g/appointments-api/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+Part of **[Aurora Clinic](https://github.com/evg-g/aurora)** — three repos, one product.
+
 The backend for **Aurora Clinic** — appointment scheduling and medication cold-chain
 monitoring. Python 3.12, FastAPI, PostgreSQL, Redis.
 
-This repo is one of three that make up the system. See the top-level `README.md` for how
+This repo is one of three that make up the system. See the [top-level `README.md`](https://github.com/evg-g/aurora) for how
 they fit together.
 
 ## Why this exists
