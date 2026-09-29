@@ -62,8 +62,7 @@ def upgrade() -> None:
     # which is what the EXCLUDE constraint below needs.
     op.execute("CREATE EXTENSION IF NOT EXISTS btree_gist")
     op.execute(
-        "CREATE TYPE user_role AS ENUM "
-        "('PATIENT', 'CLINICIAN', 'CLINIC_ADMIN', 'PLATFORM_ADMIN')"
+        "CREATE TYPE user_role AS ENUM ('PATIENT', 'CLINICIAN', 'CLINIC_ADMIN', 'PLATFORM_ADMIN')"
     )
     op.execute(
         "CREATE TYPE appointment_status AS ENUM "
