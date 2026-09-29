@@ -8,6 +8,10 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    # One weekly PR for all minor + patch bumps; each major bump still gets its own PR and review.
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -15,3 +19,7 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
+    # Action bumps are low-risk and CI-verified, so they arrive as one weekly PR.
+    groups:
+      github-actions:
+        patterns: ["*"]
