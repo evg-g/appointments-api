@@ -31,9 +31,9 @@ def test_committed_openapi_matches_served_schema() -> None:
     export = _load_export_module()
     served = export.serialize(export.current_spec())
 
-    assert (
-        CONTRACT_PATH.exists()
-    ), "contracts/openapi.json is missing — generate it with `make contract`."
+    assert CONTRACT_PATH.exists(), (
+        "contracts/openapi.json is missing — generate it with `make contract`."
+    )
     committed = CONTRACT_PATH.read_text(encoding="utf-8")
 
     assert committed == served, (

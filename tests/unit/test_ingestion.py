@@ -253,7 +253,7 @@ async def test_disabled_device_raises() -> None:
 
 
 async def test_no_policy_skips_excursion_engine() -> None:
-    service, readings, excursions, _pub, _dev = _service(band=None)
+    service, _readings, excursions, _pub, _dev = _service(band=None)
     outcome = await service.ingest(_DEVICE_ID, [_reading(1, -600, 5.0)])
     assert outcome.accepted == 1
     assert excursions.calls == 0

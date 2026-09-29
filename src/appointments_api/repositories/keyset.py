@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TypeVar
-
 from sqlalchemy import Select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from appointments_api.api.pagination import Cursor
 from appointments_api.models.base import Base
 
-M = TypeVar("M", bound=Base)
 
-
-async def keyset_page(
+async def keyset_page[M: Base](
     session: AsyncSession,
     stmt: Select[tuple[M]],
     model: type[M],

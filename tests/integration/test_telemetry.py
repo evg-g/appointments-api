@@ -96,7 +96,7 @@ async def test_batch_ingest_and_idempotent_replay(seed, login, client) -> None: 
 async def test_missing_or_bad_device_secret_rejected(seed, login, client) -> None:  # type: ignore[no-untyped-def]
     admin = await _admin_token(seed, login)
     clinic_id = await seed.clinic()
-    device_id, secret = await _provision(client, admin, clinic_id)
+    device_id, _secret = await _provision(client, admin, clinic_id)
     now = datetime.now(UTC)
     envelope = _envelope([(1, now, 5.0)])
 

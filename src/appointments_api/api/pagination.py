@@ -14,11 +14,9 @@ import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Generic, Protocol, TypeVar
+from typing import Protocol
 
 from pydantic import BaseModel
-
-T = TypeVar("T")
 
 
 class HasCursorFields(Protocol):
@@ -26,9 +24,6 @@ class HasCursorFields(Protocol):
 
     id: uuid.UUID
     created_at: datetime
-
-
-M = TypeVar("M", bound=HasCursorFields)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,12 +51,14 @@ class PageInfo(BaseModel):
     has_more: bool
 
 
-class Page(BaseModel, Generic[T]):
+class Page[T](BaseModel):
     data: list[T]
     page: PageInfo
 
 
-def build_page(rows: Sequence[M], has_more: bool, to_out: Callable[[M], T]) -> Page[T]:
+def build_page[M: HasCursorFields, T](
+    rows: Sequence[M], has_more: bool, to_out: Callable[[M], T]
+) -> Page[T]:
     """Turn ``(rows, has_more)`` from a repository into a ``Page`` with a next cursor.
 
     The cursor points at the last returned row, so the next request continues right after it.
