@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-uv
       - run: uv run ruff check .
       - run: uv run ruff format --check .
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: actionlint
         uses: docker://rhysd/actionlint:latest
         with:
@@ -67,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-uv
       - run: uv run mypy
 
@@ -80,7 +80,7 @@ jobs:
       matrix:
         python-version: ["3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-uv
         with:
           python-version: ${{ matrix.python-version }}
@@ -96,7 +96,7 @@ jobs:
           echo "See coverage in the job log; XML uploaded as an artifact." >> "$GITHUB_STEP_SUMMARY"
       - name: Upload JUnit + coverage XML
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-reports-${{ matrix.python-version }}
           path: |
@@ -109,7 +109,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-uv
       # ubuntu-latest ships a working Docker daemon, so testcontainers spins up real Postgres + Redis.
       # docs/CI_CD.md explains the services:-containers alternative and the trade-off.
@@ -117,7 +117,7 @@ jobs:
         run: uv run pytest tests/integration -q --junitxml=junit-integration.xml
       - name: Upload JUnit
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: integration-reports
           path: junit-integration.xml
@@ -128,7 +128,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-uv
       - name: Run all tiers under coverage
         run: >
@@ -141,7 +141,7 @@ jobs:
         run: uv run python scripts/check_coverage.py >> "$GITHUB_STEP_SUMMARY"
       - name: Upload coverage HTML
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-html
           path: htmlcov/
@@ -155,7 +155,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # need the base commit for the oasdiff comparison
       - uses: ./.github/actions/setup-python-uv
@@ -168,7 +168,7 @@ jobs:
       - name: Telemetry contract drift check
         run: uv run python scripts/check_telemetry_contract.py
       - name: Publish OpenAPI as a build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openapi
           path: contracts/openapi.json
@@ -208,10 +208,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
       - name: Build image (cached, load into the local daemon)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -224,7 +224,7 @@ jobs:
       - name: Save image for the security scan
         run: docker save appointments-api:ci -o image.tar
       - name: Upload image artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: image-tar
           path: image.tar
@@ -239,14 +239,14 @@ jobs:
       contents: read
       pull-requests: read # gitleaks lists the PR's commits on pull_request events
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # gitleaks scans full history
       - uses: ./.github/actions/setup-python-uv
       - name: pip-audit (known CVEs in dependencies)
         run: uv run --with pip-audit pip-audit || echo "::warning::pip-audit reported advisories"
       - name: gitleaks (secret scan)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Trivy filesystem scan (fail on HIGH/CRITICAL)
@@ -258,7 +258,7 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
       - name: Download built image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: image-tar
       - name: Load image
@@ -279,7 +279,7 @@ jobs:
           format: cyclonedx
           output: sbom.cdx.json
       - name: Upload SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom
           path: sbom.cdx.json
@@ -294,11 +294,11 @@ jobs:
       actions: read # CodeQL reads the workflow run; required on private repos
       security-events: write # required to upload results to the Security tab
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: python
           queries: security-and-quality
       - name: Analyze
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
