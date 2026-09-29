@@ -5,7 +5,7 @@ description = "Aurora Clinic appointment scheduling and cold-chain monitoring AP
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "evgmongo-maker" }]
+authors = [{ name = "evg-g" }]
 dependencies = [
     "fastapi>=0.115,<0.116",
     "uvicorn[standard]>=0.32,<0.33",
