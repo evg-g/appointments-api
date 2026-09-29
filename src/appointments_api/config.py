@@ -64,6 +64,25 @@ class Settings(BaseSettings):
     # explicitly with `python -m appointments_api.workers.webhooks`, or set this true.
     webhook_worker_enabled: bool = False
 
+    # Telemetry ingestion (milestone 10). A reading whose device clock differs from the server clock
+    # by more than the skew threshold is stored but flagged; one dated further than the future
+    # tolerance ahead of the server clock is rejected outright (spec §4 rule 10).
+    telemetry_max_skew_seconds: float = 300.0
+    telemetry_future_tolerance_seconds: float = 60.0
+
+    # MQTT ingestion worker (milestone 10). The worker subscribes to the broker as the primary path;
+    # the HTTP batch endpoint is the fallback. Both funnel into the same ingestion service. The
+    # worker runs as a separate process (`python -m appointments_api.workers.telemetry_mqtt`); it is
+    # never started in-process, so tests and `make dev` need no broker.
+    mqtt_broker_host: str = "localhost"
+    mqtt_broker_port: int = 1883
+    mqtt_username: str | None = None
+    mqtt_password: str | None = None
+    # Topic filter for inbound telemetry. Scheme (spec §8):
+    #   aurora/v1/clinic/{clinic_id}/device/{device_id}/telemetry
+    mqtt_topic_filter: str = "aurora/v1/clinic/+/device/+/telemetry"
+    mqtt_client_id: str = "appointments-api-ingestion"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

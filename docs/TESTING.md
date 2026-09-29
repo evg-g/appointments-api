@@ -72,9 +72,11 @@ regressions, which is what we actually care about.
 ### Mutation (`scripts/check_mutation.py`)
 
 - **Scope:** the `services/` package; the fast, I/O-free **unit** suite is the runner.
-- **Baseline (documented):** killed **421**, survived **94**, timeout **1**, no-tests **126**,
-  total **642**. Kill rate over *tested* mutants (killed / (killed + survived + timeout + suspicious))
-  = **≈ 81.6%**.
+- **Baseline (documented):** killed **647**, survived **169**, timeout **1**, no-tests **204**,
+  total **1021**. Kill rate over *tested* mutants (killed / (killed + survived + timeout + suspicious))
+  = **≈ 79.2%**. (The milestone-5 figure was 81.6% over 642 mutants; the telemetry services added
+  in milestone 10 grew the pool and pulled it to 77.97%, below the gate, until
+  `tests/unit/test_excursion_detector.py` pinned the detector's per-reading rules.)
 - **Gate:** kill rate ≥ **78%**. Raise this as the suite strengthens; never lower it silently.
 - **"no tests" mutants** are lines the unit runner does not exercise — mostly the webhook delivery
   I/O paths (`sender`, parts of `worker`) which the integration tier covers instead. They are
