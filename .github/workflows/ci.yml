@@ -249,7 +249,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Trivy filesystem scan (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: fs
           scan-ref: .
@@ -263,7 +263,7 @@ jobs:
       - name: Load image
         run: docker load -i image.tar
       - name: Trivy image scan (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: image
           image-ref: appointments-api:ci
@@ -271,7 +271,7 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
       - name: Generate CycloneDX SBOM from the image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: image
           image-ref: appointments-api:ci
@@ -290,6 +290,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+      actions: read # CodeQL reads the workflow run; required on private repos
       security-events: write # required to upload results to the Security tab
     steps:
       - uses: actions/checkout@v4
