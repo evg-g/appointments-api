@@ -8,8 +8,8 @@ and how to roll out a breaking change across repos that ship on their own schedu
 There are two contracts in the system, flowing in opposite directions:
 
 1. **HTTP / OpenAPI** — owned by `appointments-api` (this repo). The web app consumes it.
-2. **Telemetry / AsyncAPI + JSON Schema** — owned by `aurora-sensor-agent`. This API consumes it.
-   That half arrives in a later milestone; this document is about the OpenAPI half.
+2. **Telemetry / AsyncAPI + JSON Schema** — owned by `aurora-sensor-agent`. This API consumes it
+   (added in milestone 10; see the telemetry section below).
 
 ## The rule
 
@@ -89,3 +89,39 @@ required request field is breaking, that widening an enum is safe but narrowing 
 diff cannot tell those apart, and a hand-rolled checker would reimplement a spec badly. The same
 binary and command run locally (`make contract-diff`) and in CI, so there are no surprises at review
 time.
+
+## The telemetry contract (device → API): the OpenAPI gate in reverse
+
+The device repo owns the telemetry contract: `contracts/telemetry.schema.json` (the batch payload,
+JSON Schema draft 2020-12) and `contracts/telemetry.asyncapi.yaml` (AsyncAPI 3: the MQTT topics
+`aurora/v1/clinic/{clinic}/device/{device}/telemetry|health|config`). This API **vendors** a
+byte-identical copy into the package (`appointments_api/contracts/telemetry/`) so the MQTT worker can
+load it at runtime, validates every inbound message against it, and gates drift the same way OpenAPI is
+gated — but in the opposite direction.
+
+```mermaid
+sequenceDiagram
+    participant Dev as aurora-sensor-agent (owner)
+    participant API as appointments-api (consumer)
+    participant CI as API CI
+    Dev->>Dev: edit telemetry.schema.json / .asyncapi.yaml
+    Dev->>API: publish contract; API re-vendors + records CHECKSUMS.sha256
+    API->>CI: open PR
+    CI->>CI: check_telemetry_contract.py (checksum guard; byte-compare if device repo present)
+    CI->>CI: contract tests (JSON Schema == Pydantic model; accept vN and vN-1)
+    Note over CI: drift, or an un-re-vendored edit, fails the PR
+```
+
+- **Drift gate** (`make contract-telemetry`, CI `contract` job): the vendored files must match their
+  recorded checksums, and — when the device repo is checked out alongside — be byte-identical to its
+  source. If the sibling repo is absent (a fork), the cross-repo half skips cleanly and stays green.
+- **Equivalence gate** (`tests/contract/test_telemetry_contract.py`): the JSON Schema and the
+  OpenAPI-facing Pydantic model accept the same canonical payloads, so the two descriptions cannot
+  drift apart.
+- **Versioning**: every payload carries a version. The API accepts the current version (2) and the
+  previous one (1); a v1 payload simply omits `battery_pct`. A test posts both, so device and server
+  deploy independently.
+
+To change the telemetry contract: edit it in the device repo, re-vendor into this API (copy the files
+and refresh `CHECKSUMS.sha256`), and roll it out with the same expand → deprecate → migrate → remove
+discipline as the OpenAPI side. The API accepting vN−1 is what makes the rollout non-breaking.

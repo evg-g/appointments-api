@@ -46,7 +46,10 @@ jobs:
       - run: uv run mutmut run
       - run: uv run mutmut export-cicd-stats
       - name: Enforce the mutation kill-rate baseline
-        run: uv run python scripts/check_mutation.py >> "$GITHUB_STEP_SUMMARY"
+        # tee so the numbers are in the job log too, not only the summary; pipefail keeps the exit code.
+        run: |
+          set -o pipefail
+          uv run python scripts/check_mutation.py | tee -a "$GITHUB_STEP_SUMMARY"
 
   load:
     name: load smoke (Locust p95 gate)
