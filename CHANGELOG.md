@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.0.1](https://github.com/evg-g/appointments-api/compare/v1.0.0...v1.0.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* **api:** do not fail the contract gate on a release version bump ([bdb9f75](https://github.com/evg-g/appointments-api/commit/bdb9f750cccf23589f5a13a81fabd68563c7f50d))
+* **api:** upgrade base-image OS packages so Trivy passes ([0cccd43](https://github.com/evg-g/appointments-api/commit/0cccd43453bd295f9c700b744af16e07fa513f38))
+
+
+### Documentation
+
+* **api:** describe the repo as a showcase, not a course ([9631d64](https://github.com/evg-g/appointments-api/commit/9631d643e7d2abe3a8afe1abe301ffa3a5509404))
+
 ## 1.0.0 (2026-09-29)
 
 
