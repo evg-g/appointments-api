@@ -50,6 +50,10 @@ RUN if [ -n "$EXTRA_CA_CERT" ]; then \
         echo "$EXTRA_CA_CERT" > /usr/local/share/ca-certificates/extra.crt && \
         update-ca-certificates; \
     fi && \
+    # Pull the base image's security fixes (Trivy fails CI on HIGH/CRITICAL OS CVEs; Debian often
+    # ships the fix days before the python:3.12-slim tag is rebuilt).
+    apt-get update && apt-get upgrade -y --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/* && \
     groupadd --system app && useradd --system --gid app --home /app app
 
 ENV PATH="/app/.venv/bin:$PATH" \
