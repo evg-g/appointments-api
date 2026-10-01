@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import sys
 from pathlib import Path
@@ -39,6 +40,22 @@ def serialize(spec: dict[str, Any]) -> str:
     return json.dumps(spec, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
+def matches_committed(served: dict[str, Any], committed: str) -> bool:
+    """True if the committed file is the canonical form of the served schema.
+
+    `info.version` is ignored: it is release metadata, bumped by release-please in the code, and
+    the bot cannot regenerate this file in the same release PR. Every other byte must match, so a
+    real change to the API surface still fails the gate. `make contract` refreshes the version.
+    """
+    try:
+        committed_version = json.loads(committed).get("info", {}).get("version")
+    except json.JSONDecodeError:
+        return False
+    aligned = copy.deepcopy(served)
+    aligned.setdefault("info", {})["version"] = committed_version
+    return serialize(aligned) == committed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Export or check the OpenAPI contract.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -49,14 +66,15 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    rendered = serialize(current_spec())
+    spec = current_spec()
+    rendered = serialize(spec)
 
     if args.check:
         if not args.output.exists():
             print(f"{args.output} does not exist — run scripts/export_openapi.py.", file=sys.stderr)
             return 1
         committed = args.output.read_text(encoding="utf-8")
-        if committed != rendered:
+        if not matches_committed(spec, committed):
             print(
                 f"{args.output} is out of date with the served OpenAPI schema.\n"
                 "Regenerate it with:  make contract",
