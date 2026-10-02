@@ -111,6 +111,7 @@ addopts = "-ra --strict-markers --strict-config"
 markers = [
     "property: property-based tests (hypothesis / Schemathesis).",
     "security: security tests (authz matrix, JWT tampering, injection, mass-assignment).",
+    "agent_trusted: ADLC proof tests; the ADLC proof runner selects only these (see .claude/surface-bindings.json).",
 ]
 
 [tool.coverage.run]

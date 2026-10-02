@@ -1,0 +1,19 @@
+{
+  "repo": "appointments-api",
+  "bindings": {
+    "pytest-integration": {
+      "surface": ["api", "data"],
+      "runner": "pytest",
+      "prefix": ["uv", "run"],
+      "location": "tests/integration",
+      "selector": "documentation only: -m agent_trusted -k <TEST_NAME> (needs Docker for testcontainers)"
+    },
+    "pytest-unit": {
+      "surface": ["logic"],
+      "runner": "pytest",
+      "prefix": ["uv", "run"],
+      "location": "tests/unit",
+      "selector": "documentation only: -m agent_trusted -k <TEST_NAME>"
+    }
+  }
+}
