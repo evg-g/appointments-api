@@ -7,6 +7,7 @@ cancel refused inside the handler records nothing.
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -18,8 +19,10 @@ from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from appointments_api.api.deps import get_clock
-from appointments_api.models import AuditLogEntry
+from appointments_api.api.deps import SessionDep, get_audit_log_repository, get_clock
+from appointments_api.models import Appointment, AuditLogEntry
+from appointments_api.repositories.audit_log import AuditLogRepository
+from appointments_api.repositories.redis_webhooks import RedisEventQueue
 from tests.fakes.clock import FixedClock
 from tests.integration.helpers import auth_header
 
@@ -294,3 +297,40 @@ async def test_ac2_api_admin_reads_cancel_entry_and_filters_by_entity(
         assert len(filtered) == 1, filtered
         _assert_cancel_item(filtered[0], actor_id=world["patient_id"], entity_id=x_id)
         assert filtered[0]["id"] == x_items[0]["id"]
+
+
+class _FailingAuditLogRepository(AuditLogRepository):
+    """Writes nothing: the audit insert fails inside the request, after the cancel was flushed."""
+
+    async def add_entry(self, **_: Any) -> None:
+        raise RuntimeError("audit_log insert failed")
+
+
+@pytest.mark.agent_trusted
+async def test_ac1_data_audit_write_failure_rolls_back_cancel(
+    client: httpx.AsyncClient, app: FastAPI, world: dict[str, Any]
+) -> None:
+    # The cancel and its audit row share one transaction (ADR 0016): if the audit write fails, the
+    # request is a 500, the appointment keeps its prior status, and no webhook event goes out.
+    appt_id, etag = await _book(client, world, _outside_cutoff(5))
+    await app.state.redis.delete(RedisEventQueue.KEY)  # ignore the created event
+
+    def _failing_repo(session: SessionDep) -> AuditLogRepository:
+        return _FailingAuditLogRepository(session)
+
+    app.dependency_overrides[get_audit_log_repository] = _failing_repo
+    # A client that returns the 500 response instead of re-raising the app's exception.
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as raw:
+        resp = await _cancel(raw, appt_id, world["patient_token"], etag)
+    assert resp.status_code == 500, resp.text
+
+    maker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
+    async with maker() as session:
+        appointment = await session.get(Appointment, uuid.UUID(appt_id))
+        assert appointment is not None
+        assert appointment.status.value == "REQUESTED"
+        assert appointment.cancellation_reason is None
+    assert list(await _audit_rows(app, appt_id)) == []
+    events = [json.loads(e) for e in await app.state.redis.lrange(RedisEventQueue.KEY, 0, -1)]
+    assert [e for e in events if e["type"] == "appointment.cancelled"] == [], events
