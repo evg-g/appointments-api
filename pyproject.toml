@@ -32,8 +32,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.3,<9",
-    "pytest-asyncio>=0.24,<0.25",
+    "pytest>=9.0.3,<10",
+    "pytest-asyncio>=1.0,<2",
     "pytest-cov>=5.0,<8",
     "pytest-mock>=3.14,<4",
     "pytest-xdist>=3.6,<4",
