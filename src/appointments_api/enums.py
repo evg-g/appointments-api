@@ -26,6 +26,16 @@ class AppointmentStatus(StrEnum):
     NO_SHOW = "NO_SHOW"
 
 
+class AuditAction(StrEnum):
+    """What an ``audit_log`` row records (ADR 0016).
+
+    Kept apart from ``WebhookEventType``: the webhook set is a public contract, while audit
+    actions will grow past it (device provisioning, excursions, ...).
+    """
+
+    APPOINTMENT_CANCELLED = "appointment.cancelled"
+
+
 class Weekday(IntEnum):
     """Weekday numbering that matches :meth:`datetime.date.weekday` (Monday is 0)."""
 

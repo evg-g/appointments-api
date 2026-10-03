@@ -25,6 +25,7 @@ from starlette.responses import JSONResponse, Response
 from appointments_api.api.conditional import if_match_satisfied, make_etag
 from appointments_api.api.deps import (
     AppointmentRepoDep,
+    AuditLogRepoDep,
     ClinicianRepoDep,
     ClinicRepoDep,
     ClockDep,
@@ -52,8 +53,9 @@ from appointments_api.api.schemas import (
     AppointmentTransition,
     CancelRequest,
 )
-from appointments_api.enums import AppointmentStatus, UserRole
+from appointments_api.enums import AppointmentStatus, AuditAction, UserRole
 from appointments_api.models import Appointment, User
+from appointments_api.services import audit
 from appointments_api.services.appointments.cancellation import assert_can_cancel
 from appointments_api.services.appointments.state_machine import assert_transition
 from appointments_api.services.availability import fits_working_hours
@@ -350,6 +352,7 @@ async def cancel_appointment(
     clinicians: ClinicianRepoDep,
     clock: ClockDep,
     dispatcher: WebhookDispatcherDep,
+    audit_log: AuditLogRepoDep,
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> Response:
     appointment = await appointments.get(appointment_id)
@@ -368,8 +371,20 @@ async def cancel_appointment(
     )
     _require_if_match(if_match, appointment.version)
     assert_transition(appointment.status, AppointmentStatus.CANCELLED)
+    previous_status = appointment.status
     appointment.status = AppointmentStatus.CANCELLED
     appointment.cancellation_reason = body.reason
+    # Flush first: a lost-update race fails here (412) before anything is audited. The audit row
+    # then joins the same transaction, so the cancel cannot commit without it (ADR 0016).
     await appointments.flush()
+    await audit.record(
+        audit_log,
+        actor_id=current.id,
+        action=AuditAction.APPOINTMENT_CANCELLED,
+        entity_type="appointment",
+        entity_id=str(appointment.id),
+        before={"status": previous_status.value},
+        after={"status": AppointmentStatus.CANCELLED.value},
+    )
     await _emit(dispatcher, clock, WebhookEventType.APPOINTMENT_CANCELLED, appointment)
     return _appointment_response(appointment)

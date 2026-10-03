@@ -2,19 +2,19 @@
 
 Honest list of what is deliberately incomplete, and why. Updated as milestones land.
 
-## Audit log has no write instrumentation
+## Audit log has no write instrumentation (except appointment cancellation)
 
-The `audit_log` table exists (migration 0001) and now has a read API — the admin-only,
+The `audit_log` table exists (migration 0001) and has a read API — the admin-only,
 keyset-paginated, filterable `GET /api/v1/audit-log` added for the web audit-log page (milestone 13,
-ADR 0015). But **nothing writes to it yet**: no service records an entry on appointment
-create/transition/cancel, device provisioning, or excursion changes. So the endpoint returns an empty
-list in production; the web app seeds rows only in its MSW mock so the page is demonstrable and
-tested.
+ADR 0015). Since AURORA-2, **appointment cancellation is recorded** (ADR 0016): every successful
+`POST /api/v1/appointments/{id}/cancel` writes one `appointment.cancelled` row in the same
+transaction as the cancel, through `services/audit.py`. **The other actions still write nothing**:
+appointment create, status transitions (confirm, complete, no-show), device provisioning, and
+excursion changes. So the endpoint lists only cancellations in production.
 
-**To close:** add an audit-writer (a small service invoked from the domain state changes, ideally via
-the same transaction as the change, mirroring the webhook-outbox direction) that records
-`actor_id/action/entity_type/entity_id/before/after`. Deferred so milestone 13 stays a web milestone;
-the read side is contract-driven and ready for the writer.
+**To close:** call `services.audit.record` from each remaining domain state change, in the same
+transaction as the change, adding an `AuditAction` member per action (the writer, the
+`AuditLogRepository.add_entry` implementation, and the read side are in place).
 
 ## CLINIC_ADMIN is not clinic-scoped yet
 
