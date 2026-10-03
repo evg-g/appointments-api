@@ -73,6 +73,11 @@ CI/CD in milestone 11.
 
 ## CI/CD: what could not be executed in this environment (milestone 6)
 
+**Every gate that can run without a cloud account runs on every pull request** — lint, typecheck,
+unit, integration against real Postgres and Redis, contract, coverage, build, security scanning,
+and CodeQL. The list below is only the deploy path, which needs infrastructure this environment
+does not have.
+
 The workflows are complete and statically valid (`actionlint` + `yamllint` pass locally, wired into
 `make ci-local`). What could not be *run* here, and why:
 
