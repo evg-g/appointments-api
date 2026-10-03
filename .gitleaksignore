@@ -1,0 +1,15 @@
+# Gitleaks findings reviewed and accepted, one fingerprint per line.
+#
+# Scope note: on a pull request the gitleaks action scans only the pushed commits, so these
+# historical findings are invisible there. On workflow_dispatch — and for anyone who clones the
+# repo and runs `gitleaks detect` — it scans the full history and surfaces them. This file exists
+# so a full-history scan is clean too, rather than the repo merely appearing clean because of
+# where the scan happened to look.
+#
+# Each entry must be a reviewed false positive, never a real credential that has been rotated:
+# a committed secret stays in the history and must be revoked at the source, not ignored here.
+
+# tests/integration/test_webhooks_api.py:27 — the webhook subscription fixture's signing secret,
+# the literal "0123456789abcdef". A sequential hex string written to be readable in test output;
+# it signs nothing outside the test process. Flagged by the generic-api-key rule on entropy alone.
+7a2b78bba835061243e0d8b24acdffd09ffec1d0:tests/integration/test_webhooks_api.py:generic-api-key:27
