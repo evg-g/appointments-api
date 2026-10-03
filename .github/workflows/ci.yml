@@ -158,6 +158,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # need the base commit for the oasdiff comparison
+      # Cross-repo telemetry drift needs the device repo. Set the DEVICE_REPO variable (e.g.
+      # owner/aurora-sensor-agent) to enable it; without it the job runs the in-repo checksum
+      # guard only and stays green, so a fork with no variables set still passes.
+      - if: vars.DEVICE_REPO != ''
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ vars.DEVICE_REPO }}
+          path: aurora-sensor-agent
       - uses: ./.github/actions/setup-python-uv
       # 1. Drift: the served schema must equal the committed contracts/openapi.json.
       - name: OpenAPI drift check
@@ -166,6 +174,11 @@ jobs:
       #     checksums (and, when the device repo is checked out alongside, be byte-identical to its
       #     source). The OpenAPI gate in reverse — spec §8 rule 4.
       - name: Telemetry contract drift check
+        env:
+          # Set: the sibling checkout above lands at <workspace>/aurora-sensor-agent.
+          # Unset (a fork): falls back to ../, which is absent in CI, so the script skips the
+          # cross-repo half and keeps the in-repo checksum guard. ../ is also the local-dev layout.
+          AURORA_DEVICE_REPO: ${{ vars.DEVICE_REPO != '' && 'aurora-sensor-agent' || '../aurora-sensor-agent' }}
         run: uv run python scripts/check_telemetry_contract.py
       - name: Publish OpenAPI as a build artifact
         uses: actions/upload-artifact@v7

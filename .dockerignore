@@ -35,3 +35,6 @@ docs/
 .idea/
 *.swp
 .DS_Store
+
+# Sibling repo checked out into the workspace by CI — must never reach the image.
+/aurora-sensor-agent/
