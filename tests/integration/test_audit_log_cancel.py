@@ -239,3 +239,58 @@ async def test_ac3_data_refused_cancel_records_no_audit_row(
 
     # Across the whole run, only the two successful cancels were audited.
     assert sorted(r.entity_id for r in await _audit_rows(app)) == sorted([twice_id, race_id])
+
+
+async def _read_audit_log(
+    client: httpx.AsyncClient, token: str, params: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    resp = await client.get("/api/v1/audit-log", params=params or {}, headers=auth_header(token))
+    assert resp.status_code == 200, resp.json()
+    data: list[dict[str, Any]] = resp.json()["data"]
+    return data
+
+
+def _assert_cancel_item(item: dict[str, Any], *, actor_id: uuid.UUID, entity_id: str) -> None:
+    assert item["actor_id"] == str(actor_id)
+    assert item["action"] == "appointment.cancelled"
+    assert item["entity_type"] == "appointment"
+    assert item["entity_id"] == entity_id
+    assert item["before"] == {"status": "REQUESTED"}
+    assert item["after"] == {"status": "CANCELLED"}
+    uuid.UUID(item["id"])
+    datetime.fromisoformat(item["created_at"])
+
+
+@pytest.mark.agent_trusted
+async def test_ac2_api_admin_reads_cancel_entry_and_filters_by_entity(
+    client: httpx.AsyncClient, seed: Any, login: Any, world: dict[str, Any]
+) -> None:
+    await seed.user(role="PLATFORM_ADMIN", email="platform-admin@x.io")
+    platform_token = await login("platform-admin@x.io")
+
+    # Patient cancels X and Y (both REQUESTED, outside the cutoff).
+    x_id, x_etag = await _book(client, world, _outside_cutoff(5))
+    y_id, y_etag = await _book(client, world, _outside_cutoff(6))
+    for appt_id, etag in ((x_id, x_etag), (y_id, y_etag)):
+        resp = await _cancel(client, appt_id, world["patient_token"], etag)
+        assert resp.status_code == 200, resp.json()
+
+    # A CLINIC_ADMIN reads the unfiltered log: the entry for X is there with every field.
+    items = await _read_audit_log(client, world["admin_token"])
+    x_items = [i for i in items if i["entity_id"] == x_id]
+    assert len(x_items) == 1, items
+    _assert_cancel_item(x_items[0], actor_id=world["patient_id"], entity_id=x_id)
+
+    # A PLATFORM_ADMIN filters by entity_id = X: exactly the entry for X.
+    by_entity = await _read_audit_log(client, platform_token, {"entity_id": x_id})
+    assert len(by_entity) == 1, by_entity
+    _assert_cancel_item(by_entity[0], actor_id=world["patient_id"], entity_id=x_id)
+    assert by_entity[0]["id"] == x_items[0]["id"]
+
+    # Both admin roles, filtered by entity_type + action + entity_id: exactly the entry for X.
+    combined = {"entity_type": "appointment", "action": "appointment.cancelled", "entity_id": x_id}
+    for token in (world["admin_token"], platform_token):
+        filtered = await _read_audit_log(client, token, combined)
+        assert len(filtered) == 1, filtered
+        _assert_cancel_item(filtered[0], actor_id=world["patient_id"], entity_id=x_id)
+        assert filtered[0]["id"] == x_items[0]["id"]
