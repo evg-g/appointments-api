@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0](https://github.com/evg-g/appointments-api/compare/v1.0.1...v1.1.0) (2026-10-03)
+
+
+### Features
+
+* **appointments:** AURORA-2 AC1.data AC3.data record audit entry on cancel ([c22043a](https://github.com/evg-g/appointments-api/commit/c22043a9254ee3754c76bde9bef18ed1c2dfb3cb))
+
+
+### Documentation
+
+* **audit:** ADRs for AURORA-2 ([95d100e](https://github.com/evg-g/appointments-api/commit/95d100ed7c7401b6bea8b8ae7ec1d4fa543519fa))
+* stop the CI/CD gap note reading as "no pipeline" ([bf37443](https://github.com/evg-g/appointments-api/commit/bf37443ab2e74b4940bc0dfc1b94a0cddd7f9d17))
+
 ## [1.0.1](https://github.com/evg-g/appointments-api/compare/v1.0.0...v1.0.1) (2026-10-01)
 
 
