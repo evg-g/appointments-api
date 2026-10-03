@@ -16,7 +16,7 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from appointments_api.api.deps import SessionDep, get_audit_log_repository, get_clock
@@ -334,3 +334,55 @@ async def test_ac1_data_audit_write_failure_rolls_back_cancel(
     assert list(await _audit_rows(app, appt_id)) == []
     events = [json.loads(e) for e in await app.state.redis.lrange(RedisEventQueue.KEY, 0, -1)]
     assert [e for e in events if e["type"] == "appointment.cancelled"] == [], events
+
+
+@pytest.mark.agent_trusted
+async def test_ac1_data_failed_cancel_commit_leaves_no_audit_row(
+    client: httpx.AsyncClient, app: FastAPI, world: dict[str, Any]
+) -> None:
+    # The real audit wiring (no override): if the request's COMMIT fails after the audit write, the
+    # audit row must roll back with the cancel: the cancel is not durable, and neither is its row.
+    # A test-only deferred constraint trigger raises at COMMIT time for this one appointment, so
+    # only a row written in the same transaction as the cancel vanishes with it.
+    appt_id, etag = await _book(client, world, _outside_cutoff(5))
+    target = uuid.UUID(appt_id)  # validated UUID, safe to inline in the trigger body
+    engine = app.state.engine
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "CREATE FUNCTION ac1_fail_cancel_commit() RETURNS trigger LANGUAGE plpgsql AS $$ "
+                f"BEGIN IF NEW.id = '{target}'::uuid AND NEW.status::text = 'CANCELLED' THEN "
+                "RAISE EXCEPTION 'ac1: commit of cancel refused'; END IF; RETURN NEW; END $$"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE CONSTRAINT TRIGGER ac1_fail_cancel_commit AFTER UPDATE ON appointments "
+                "DEFERRABLE INITIALLY DEFERRED FOR EACH ROW "
+                "EXECUTE FUNCTION ac1_fail_cancel_commit()"
+            )
+        )
+    try:
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as raw:
+            resp = await _cancel(raw, appt_id, world["patient_token"], etag)
+        # get_session commits after the response is sent (FastAPI yield-dependency exit), so the
+        # client may still see 200 for a cancel whose COMMIT failed. Either way the handler must
+        # have run to the end (cancel flushed, audit row written) before the commit was refused.
+        assert resp.status_code == 200 or resp.status_code >= 500, (resp.status_code, resp.text)
+        if resp.status_code == 200:
+            assert resp.json()["status"] == "CANCELLED", resp.json()
+
+        maker: async_sessionmaker[AsyncSession] = app.state.sessionmaker
+        async with maker() as session:
+            appointment = await session.get(Appointment, target)
+            assert appointment is not None
+            assert appointment.status.value == "REQUESTED"
+            assert appointment.cancellation_reason is None
+        assert list(await _audit_rows(app, appt_id)) == []
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("DROP TRIGGER IF EXISTS ac1_fail_cancel_commit ON appointments")
+            )
+            await conn.execute(text("DROP FUNCTION IF EXISTS ac1_fail_cancel_commit()"))
