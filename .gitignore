@@ -37,3 +37,6 @@ _*.log
 .vscode/
 *.swp
 .DS_Store
+
+# Sibling repo checked out into the workspace by CI (cross-repo contract drift gate).
+/aurora-sensor-agent/
