@@ -73,7 +73,9 @@ make stack-up   # Postgres + Redis + the API on http://localhost:8000
 make seed       # demo users, clinic, clinician, service
 ```
 
-Demo login: `admin@aurora-clinic.com` / `password123` (local demo only).
+Demo login: `admin@aurora-clinic.com` / `password123` (local demo only). The browser demo uses
+different addresses (`admin@aurora.test`) because it runs on the mock API; this one rejects the
+reserved `.test` TLD.
 
 | Tool | How | Notes |
 |---|---|---|
