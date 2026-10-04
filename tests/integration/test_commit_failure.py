@@ -325,3 +325,84 @@ async def test_ac4_data_failed_commit_publishes_no_webhook_event(
     assert saved.status_code == 200, saved.text
     assert saved.json()["status"] == "CANCELLED"
     assert events[0]["data"]["appointment"] == saved.json()
+
+
+RETRY_SLOT = "2027-06-09T10:00:00+00:00"
+OTHER_BODY_SLOT = "2027-06-10T10:00:00+00:00"
+
+
+async def _arm_book_at(fail_commit: CommitFailure, world: dict[str, Any], starts_at: str) -> None:
+    patient = uuid.UUID(str(world["patient_id"]))
+    slot = datetime.fromisoformat(starts_at).isoformat()  # validated timestamp, safe to inline
+    await fail_commit.arm(
+        table="appointments",
+        event="INSERT",
+        when=f"NEW.patient_id = '{patient}'::uuid AND NEW.starts_at = '{slot}'::timestamptz",
+    )
+
+
+async def _patient_slots(client: httpx.AsyncClient, world: dict[str, Any]) -> list[datetime]:
+    resp = await client.get("/api/v1/appointments", headers=auth_header(world["patient_token"]))
+    assert resp.status_code == 200, resp.text
+    return [datetime.fromisoformat(a["starts_at"]) for a in resp.json()["data"]]
+
+
+@pytest.mark.agent_trusted
+async def test_ac2_api_failed_commit_frees_the_idempotency_key(
+    raw_client: httpx.AsyncClient,
+    world: dict[str, Any],
+    fail_commit: CommitFailure,
+) -> None:
+    patient = auth_header(world["patient_token"])
+    key = {"Idempotency-Key": "commit-fails-k"}
+
+    # Book with key K and the COMMIT fails: 500 problem+json, and no appointment is found.
+    await _arm_book_at(fail_commit, world, RETRY_SLOT)
+    resp = await raw_client.post(
+        "/api/v1/appointments", json=_booking(world, RETRY_SLOT), headers={**patient, **key}
+    )
+    _assert_problem(resp, 500)
+    assert datetime.fromisoformat(RETRY_SLOT) not in await _patient_slots(raw_client, world)
+
+    # Retry the same body with K and the COMMIT succeeds: 201 with a new, saved appointment.
+    await fail_commit.disarm()
+    retry = await raw_client.post(
+        "/api/v1/appointments", json=_booking(world, RETRY_SLOT), headers={**patient, **key}
+    )
+    assert retry.status_code == 201, retry.text
+    assert retry.headers.get("idempotency-replayed") is None, retry.headers
+    appt_id = retry.json()["id"]
+    saved = await raw_client.get(f"/api/v1/appointments/{appt_id}", headers=patient)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["id"] == appt_id
+    assert datetime.fromisoformat(saved.json()["starts_at"]) == datetime.fromisoformat(RETRY_SLOT)
+
+    # COMMIT succeeded, retry the same body with K: 201 replay with the same appointment id.
+    replay = await raw_client.post(
+        "/api/v1/appointments", json=_booking(world, RETRY_SLOT), headers={**patient, **key}
+    )
+    assert replay.status_code == 201, replay.text
+    assert replay.headers.get("idempotency-replayed") == "true", replay.headers
+    assert replay.json()["id"] == appt_id
+
+    # Book with a second key K2 and the COMMIT fails, then a different body with K2: 201, not 422.
+    other_key = {"Idempotency-Key": "commit-fails-k2"}
+    await _arm_book_at(fail_commit, world, BOOK_SLOT)
+    resp = await raw_client.post(
+        "/api/v1/appointments", json=_booking(world, BOOK_SLOT), headers={**patient, **other_key}
+    )
+    _assert_problem(resp, 500)
+    different = await raw_client.post(
+        "/api/v1/appointments",
+        json=_booking(world, OTHER_BODY_SLOT),
+        headers={**patient, **other_key},
+    )
+    assert different.status_code == 201, different.text
+    assert different.headers.get("idempotency-replayed") is None, different.headers
+    new_id = different.json()["id"]
+    assert new_id != appt_id
+    saved = await raw_client.get(f"/api/v1/appointments/{new_id}", headers=patient)
+    assert saved.status_code == 200, saved.text
+    assert datetime.fromisoformat(saved.json()["starts_at"]) == datetime.fromisoformat(
+        OTHER_BODY_SLOT
+    )
