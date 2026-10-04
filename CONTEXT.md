@@ -18,3 +18,9 @@ A short glossary of the terms tickets and ADRs use. Add a term when a ticket int
   (ADR 0016).
 - **Audit writer** — the `AuditWriter` Protocol the audit service records through; implemented by
   `AuditLogRepository` (ADR 0016).
+- **Commit failure** — the database refuses the request's COMMIT (a deferred constraint, a
+  serialization failure, a lost connection). The client gets an error, and nothing from the request
+  is saved (ADR 0017).
+- **Transaction hooks** — the request-scoped `on_commit` / `on_rollback` callback lists that
+  `get_session` runs after the commit or the rollback; webhook publishing and booking idempotency
+  use them (ADR 0017).
