@@ -8,6 +8,7 @@ write endpoints that use ``SessionDep``.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -20,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from appointments_api.api.deps import get_clock
 from appointments_api.models import Appointment, AuditLogEntry, Clinic, WebhookSubscription
+from appointments_api.repositories.redis_webhooks import RedisEventQueue
 from tests.fakes.clock import FixedClock
 from tests.integration.conftest import CommitFailure
 from tests.integration.helpers import auth_header
@@ -28,6 +30,8 @@ ALL_WEEK = [(wd, "06:00", "22:00") for wd in range(7)]
 NOW = datetime(2027, 6, 1, 9, 0, tzinfo=UTC)
 CANCEL_SLOT = "2027-06-05T10:00:00+00:00"
 BOOK_SLOT = "2027-06-06T10:00:00+00:00"
+CONFIRM_SLOT = "2027-06-07T10:00:00+00:00"
+CANCEL_OK_SLOT = "2027-06-08T10:00:00+00:00"
 FAILING_CLINIC = "Commit Fails Clinic"
 CONFLICTING_CLINIC = "Commit Conflicts Clinic"
 PROBLEM_JSON = "application/problem+json"
@@ -247,3 +251,77 @@ async def test_ac3_data_failed_commit_saves_nothing(
 
         # Delete webhook subscription: it still exists.
         assert await session.get(WebhookSubscription, uuid.UUID(sub_id)) is not None
+
+
+async def _queued_events(app: FastAPI) -> list[dict[str, Any]]:
+    raw = await app.state.redis.lrange(RedisEventQueue.KEY, 0, -1)
+    return [json.loads(item) for item in raw]
+
+
+@pytest.mark.agent_trusted
+async def test_ac4_data_failed_commit_publishes_no_webhook_event(
+    app: FastAPI,
+    client: httpx.AsyncClient,
+    raw_client: httpx.AsyncClient,
+    world: dict[str, Any],
+    fail_commit: CommitFailure,
+) -> None:
+    """Only the Redis event queue (testcontainer) is read; no worker runs, nothing is delivered."""
+    patient = auth_header(world["patient_token"])
+    admin = auth_header(world["admin_token"])
+    cancel_id, cancel_etag = await _book(client, world, CANCEL_SLOT)
+    confirm_id, confirm_etag = await _book(client, world, CONFIRM_SLOT)
+    ok_id, ok_etag = await _book(client, world, CANCEL_OK_SLOT)
+    await _arm_cancel(fail_commit, cancel_id)
+    await _arm_book(fail_commit, world)
+    await fail_commit.arm(
+        table="appointments",
+        event="UPDATE",
+        when=f"NEW.id = '{uuid.UUID(confirm_id)}'::uuid AND NEW.status::text = 'CONFIRMED'",
+    )
+    # Drop the appointment.created events from the setup bookings.
+    await app.state.redis.delete(RedisEventQueue.KEY)
+
+    # Cancel, COMMIT fails: no appointment.cancelled event.
+    resp = await raw_client.post(
+        f"/api/v1/appointments/{cancel_id}/cancel",
+        json={"reason": "cannot make it"},
+        headers={**patient, "If-Match": cancel_etag},
+    )
+    assert resp.status_code == 500, resp.text
+    events = await _queued_events(app)
+    assert [e for e in events if e["type"] == "appointment.cancelled"] == [], events
+
+    # Book, COMMIT fails: no appointment.created event.
+    resp = await raw_client.post(
+        "/api/v1/appointments", json=_booking(world, BOOK_SLOT), headers=patient
+    )
+    assert resp.status_code == 500, resp.text
+    events = await _queued_events(app)
+    assert [e for e in events if e["type"] == "appointment.created"] == [], events
+
+    # Transition to CONFIRMED, COMMIT fails: no appointment.confirmed event.
+    resp = await raw_client.post(
+        f"/api/v1/appointments/{confirm_id}/transition",
+        json={"target_status": "CONFIRMED"},
+        headers={**admin, "If-Match": confirm_etag},
+    )
+    assert resp.status_code == 500, resp.text
+    events = await _queued_events(app)
+    assert [e for e in events if e["type"] == "appointment.confirmed"] == [], events
+    assert events == [], events
+
+    # Cancel, COMMIT succeeds: exactly one appointment.cancelled event, matching the saved row.
+    resp = await raw_client.post(
+        f"/api/v1/appointments/{ok_id}/cancel",
+        json={"reason": "changed plans"},
+        headers={**patient, "If-Match": ok_etag},
+    )
+    assert resp.status_code == 200, resp.text
+    events = await _queued_events(app)
+    assert len(events) == 1, events
+    assert events[0]["type"] == "appointment.cancelled"
+    saved = await client.get(f"/api/v1/appointments/{ok_id}", headers=admin)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["status"] == "CANCELLED"
+    assert events[0]["data"]["appointment"] == saved.json()

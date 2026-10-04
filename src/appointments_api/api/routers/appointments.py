@@ -33,6 +33,7 @@ from appointments_api.api.deps import (
     IdempotencyServiceDep,
     PageParams,
     ServiceRepoDep,
+    TransactionHooksDep,
     UserRepoDep,
     WebhookDispatcherDep,
 )
@@ -65,6 +66,7 @@ from appointments_api.services.idempotency import (
     StoredResponse,
     request_fingerprint,
 )
+from appointments_api.services.transaction_hooks import TransactionHooks
 from appointments_api.services.webhooks.dispatcher import WebhookDispatcher
 from appointments_api.services.webhooks.events import (
     WebhookEvent,
@@ -99,20 +101,29 @@ def _replayed_response(stored: StoredResponse) -> JSONResponse:
     return JSONResponse(status_code=stored.status_code, content=stored.body, headers=headers)
 
 
-async def _emit(
+def _emit(
+    hooks: TransactionHooks,
     dispatcher: WebhookDispatcher,
     clock: Clock,
     event_type: WebhookEventType,
     appointment: Appointment,
 ) -> None:
-    """Publish a state-change event for the webhook worker to fan out and deliver."""
+    """Publish a state-change event for the webhook worker, once the transaction has committed.
+
+    The event is built now (from the flushed row the response also shows) but published by an
+    ``on_commit`` hook, so a failed COMMIT publishes nothing (ADR 0017).
+    """
     event = WebhookEvent(
         id=uuid.uuid4().hex,
         type=event_type.value,
         occurred_at=clock.now(),
         data={"appointment": _serialize(appointment)},
     )
-    await dispatcher.dispatch(event)
+
+    async def publish() -> None:
+        await dispatcher.dispatch(event)
+
+    hooks.on_commit(publish)
 
 
 async def _assert_can_access(
@@ -220,6 +231,7 @@ async def create_appointment(
     appointments: AppointmentRepoDep,
     idempotency: IdempotencyServiceDep,
     dispatcher: WebhookDispatcherDep,
+    hooks: TransactionHooksDep,
     clock: ClockDep,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> Response:
@@ -260,7 +272,7 @@ async def create_appointment(
                 etag=make_etag(appointment.version),
             ),
         )
-    await _emit(dispatcher, clock, WebhookEventType.APPOINTMENT_CREATED, appointment)
+    _emit(hooks, dispatcher, clock, WebhookEventType.APPOINTMENT_CREATED, appointment)
     return _appointment_response(appointment, status_code=status.HTTP_201_CREATED)
 
 
@@ -321,6 +333,7 @@ async def transition_appointment(
     appointments: AppointmentRepoDep,
     clinicians: ClinicianRepoDep,
     dispatcher: WebhookDispatcherDep,
+    hooks: TransactionHooksDep,
     clock: ClockDep,
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> Response:
@@ -338,7 +351,7 @@ async def transition_appointment(
     await appointments.flush()
     event_type = event_type_for_status(appointment.status)
     if event_type is not None:
-        await _emit(dispatcher, clock, event_type, appointment)
+        _emit(hooks, dispatcher, clock, event_type, appointment)
     return _appointment_response(appointment)
 
 
@@ -352,6 +365,7 @@ async def cancel_appointment(
     clinicians: ClinicianRepoDep,
     clock: ClockDep,
     dispatcher: WebhookDispatcherDep,
+    hooks: TransactionHooksDep,
     audit_log: AuditLogRepoDep,
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> Response:
@@ -386,5 +400,5 @@ async def cancel_appointment(
         before={"status": previous_status.value},
         after={"status": AppointmentStatus.CANCELLED.value},
     )
-    await _emit(dispatcher, clock, WebhookEventType.APPOINTMENT_CANCELLED, appointment)
+    _emit(hooks, dispatcher, clock, WebhookEventType.APPOINTMENT_CANCELLED, appointment)
     return _appointment_response(appointment)

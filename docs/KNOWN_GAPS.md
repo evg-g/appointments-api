@@ -29,12 +29,12 @@ focused on the surface; tracked here so it is not forgotten.
 
 ## Webhook emission is not transactional with the DB commit
 
-A state change publishes its event to Redis during the request, after the row has flushed but before
-the surrounding transaction commits. A crash in that small window could emit an event for a change
-that later rolled back, or commit a change whose event was not emitted. Receivers already must dedupe
-on `X-Webhook-Id` (delivery is at-least-once), but exactly-once *emission* needs a transactional
-outbox: write the event to a DB table in the same transaction, and have a relay publish it. Deliberately
-out of scope for milestone 4; see ADR 0010.
+A state change publishes its event to Redis from an `on_commit` transaction hook, after the COMMIT
+succeeds (ADR 0017), so a failed COMMIT never emits an event. One window remains: a crash, or a Redis
+failure, between the COMMIT and the hook loses that event (a failed publish is logged, the change
+stays saved). Receivers already must dedupe on `X-Webhook-Id` (delivery is at-least-once), but
+exactly-once *emission* needs a transactional outbox: write the event to a DB table in the same
+transaction, and have a relay publish it. Deferred to AURORA-4; see ADR 0010 and ADR 0017.
 
 ## Webhook worker runs on demand, and dead letters are not yet surfaced
 
