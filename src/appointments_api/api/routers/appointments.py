@@ -63,6 +63,7 @@ from appointments_api.services.availability import fits_working_hours
 from appointments_api.services.clock import Clock
 from appointments_api.services.idempotency import (
     BeginState,
+    IdempotencyService,
     StoredResponse,
     request_fingerprint,
 )
@@ -124,6 +125,28 @@ def _emit(
         await dispatcher.dispatch(event)
 
     hooks.on_commit(publish)
+
+
+def _register_idempotency_release(
+    hooks: TransactionHooks, idempotency: IdempotencyService, key: str, fingerprint: str
+) -> None:
+    async def release() -> None:
+        await idempotency.release(_IDEMPOTENCY_SCOPE, key, fingerprint)
+
+    hooks.on_rollback(release)
+
+
+def _register_idempotency_complete(
+    hooks: TransactionHooks,
+    idempotency: IdempotencyService,
+    key: str,
+    fingerprint: str,
+    response: StoredResponse,
+) -> None:
+    async def complete() -> None:
+        await idempotency.complete(_IDEMPOTENCY_SCOPE, key, fingerprint, response)
+
+    hooks.on_commit(complete)
 
 
 async def _assert_can_access(
@@ -249,21 +272,20 @@ async def create_appointment(
             raise IdempotencyKeyReusedError(
                 "This Idempotency-Key was already used for a different request body."
             )
+        # This request now holds the key. If the transaction rolls back (the handler fails or the
+        # COMMIT is refused), drop the pending marker so a retry, with any body, starts fresh: a
+        # failed attempt must not poison the key (ADR 0017).
+        _register_idempotency_release(hooks, idempotency, idempotency_key, fingerprint)
 
-    try:
-        appointment = await _build_appointment(
-            body, current, users, clinics, clinicians, services, appointments
-        )
-    except Exception:
-        # A failed attempt must not poison the key: drop the pending marker so a corrected retry
-        # can start fresh.
-        if idempotency_key is not None and fingerprint is not None:
-            await idempotency.release(_IDEMPOTENCY_SCOPE, idempotency_key, fingerprint)
-        raise
+    appointment = await _build_appointment(
+        body, current, users, clinics, clinicians, services, appointments
+    )
 
     if idempotency_key is not None and fingerprint is not None:
-        await idempotency.complete(
-            _IDEMPOTENCY_SCOPE,
+        # Store the 201 for replay only once the COMMIT has succeeded (ADR 0017).
+        _register_idempotency_complete(
+            hooks,
+            idempotency,
             idempotency_key,
             fingerprint,
             StoredResponse(
