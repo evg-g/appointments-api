@@ -19,6 +19,7 @@ Every error response uses `application/problem+json` (RFC 9457). The body always
 | `validation-error` | 422 | Request body/query failed validation, or a business rule rejected the input (e.g. time outside working hours). `errors[]` lists the offending fields. |
 | `idempotency-key-reused` | 422 | An `Idempotency-Key` was replayed with a different request body. |
 | `rate-limited` | 429 | The principal exceeded its rate-limit window. Carries `Retry-After` and `RateLimit-*` headers. |
+| `internal-error` | 500 | An unexpected server error, including a COMMIT the database refused (ADR 0017). Nothing from the request is saved. |
 
 ## Examples
 

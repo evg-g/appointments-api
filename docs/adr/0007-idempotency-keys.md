@@ -1,6 +1,7 @@
 # 7. Idempotency-Key on create
 
-- Status: accepted
+- Status: accepted; the timing of complete/release is superseded by ADR 0017 (they run after
+  COMMIT / rollback)
 - Date: 2026-09-27
 
 ## Context
