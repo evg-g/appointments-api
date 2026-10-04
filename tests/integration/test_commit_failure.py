@@ -38,7 +38,7 @@ PROBLEM_JSON = "application/problem+json"
 
 _SUBSCRIPTION = {
     "url": "https://example.test/hook",
-    "secret": "0123456789abcdef",
+    "secret": "test-secret-not-real",
     "event_types": ["appointment.created"],
     "clinic_id": None,
 }
