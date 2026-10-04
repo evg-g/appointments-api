@@ -231,3 +231,10 @@ def register_error_handlers(app: FastAPI) -> None:
         else:
             problem = ConflictError(detail="The change conflicts with existing data.")
         return _json(problem.to_problem(request.url.path))
+
+    @app.exception_handler(Exception)
+    async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+        # Catch-all (ADR 0017): any unhandled error, including a failed COMMIT, is a 500 problem
+        # document. Starlette still re-raises it after this response, so it is logged as usual.
+        problem = APIError(detail="An unexpected error occurred.")
+        return _json(problem.to_problem(request.url.path))

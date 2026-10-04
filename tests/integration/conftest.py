@@ -12,6 +12,7 @@ import os
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
+from typing import Literal
 
 import httpx
 import pytest
@@ -19,7 +20,7 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
@@ -100,6 +101,82 @@ async def client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
         yield c
+
+
+@pytest.fixture
+async def raw_client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
+    """A client that returns the app's 500 response instead of re-raising the app's exception."""
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
+        yield c
+
+
+# ---- forcing a failed COMMIT (ADR 0017) ----
+
+CommitFailureMode = Literal["error", "integrity"]
+TriggerEvent = Literal["INSERT", "UPDATE", "DELETE"]
+
+# SQLSTATE raised at COMMIT. P0001 (raise_exception) surfaces as a general database error;
+# 23514 (check_violation) is an integrity-constraint class, so SQLAlchemy raises IntegrityError.
+_SQLSTATE: dict[CommitFailureMode, str] = {"error": "P0001", "integrity": "23514"}
+
+
+class CommitFailure:
+    """Installs test-only deferred constraint triggers that make a COMMIT fail for one chosen row.
+
+    A ``DEFERRABLE INITIALLY DEFERRED`` constraint trigger runs at COMMIT time, not at the
+    statement, so the request handler runs to the end (every write flushed) and only the COMMIT
+    is refused. ``when`` is a SQL boolean over ``NEW`` (INSERT/UPDATE) or ``OLD`` (DELETE) that
+    picks the one row; callers inline only validated values (UUIDs, fixed literals).
+    """
+
+    def __init__(self, engine: AsyncEngine) -> None:
+        self._engine = engine
+        self._installed: list[tuple[str, str]] = []
+
+    async def arm(
+        self,
+        *,
+        table: str,
+        event: TriggerEvent,
+        when: str,
+        mode: CommitFailureMode = "error",
+    ) -> None:
+        name = f"test_fail_commit_{len(self._installed)}"
+        row = "OLD" if event == "DELETE" else "NEW"
+        # Register before creating, so teardown drops a half-installed trigger as well.
+        self._installed.append((name, table))
+        async with self._engine.begin() as conn:
+            await conn.execute(
+                text(
+                    f"CREATE FUNCTION {name}() RETURNS trigger LANGUAGE plpgsql AS $$ "
+                    f"BEGIN IF {when} THEN RAISE EXCEPTION 'test: commit refused ({name})' "
+                    f"USING ERRCODE = '{_SQLSTATE[mode]}'; END IF; RETURN {row}; END $$"
+                )
+            )
+            await conn.execute(
+                text(
+                    f"CREATE CONSTRAINT TRIGGER {name} AFTER {event} ON {table} "
+                    f"DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION {name}()"
+                )
+            )
+
+    async def disarm(self) -> None:
+        async with self._engine.begin() as conn:
+            for name, table in self._installed:
+                await conn.execute(text(f"DROP TRIGGER IF EXISTS {name} ON {table}"))
+                await conn.execute(text(f"DROP FUNCTION IF EXISTS {name}()"))
+        self._installed.clear()
+
+
+@pytest.fixture
+async def fail_commit(app: FastAPI) -> AsyncIterator[CommitFailure]:
+    """Arm COMMIT failures for chosen rows; every trigger is dropped when the test ends."""
+    failure = CommitFailure(app.state.engine)
+    try:
+        yield failure
+    finally:
+        await failure.disarm()
 
 
 # ---- seeding helpers ----
