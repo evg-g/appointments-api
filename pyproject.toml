@@ -41,7 +41,7 @@ dev = [
     "mypy>=1.13,<2",
     "freezegun>=1.5,<2",
     "testcontainers[postgres,redis]>=4.8,<5",
-    "polyfactory>=2.17,<3",
+    "polyfactory>=2.17,<4",
     "fakeredis>=2.25,<3",
     "respx>=0.21,<0.22",
     # Milestone 5: property-based, security, and mutation testing.
