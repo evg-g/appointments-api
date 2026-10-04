@@ -43,7 +43,7 @@ dev = [
     "testcontainers[postgres,redis]>=4.8,<5",
     "polyfactory>=2.17,<3",
     "fakeredis>=2.25,<3",
-    "respx>=0.21,<0.22",
+    "respx>=0.21,<0.24",
     # Milestone 5: property-based, security, and mutation testing.
     "hypothesis>=6.112,<7",
     "schemathesis>=4.28,<5",
