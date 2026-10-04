@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from appointments_api.api.errors import ForbiddenError, UnauthorizedError
 from appointments_api.api.pagination import Cursor, decode_cursor
 from appointments_api.config import Settings, get_settings
-from appointments_api.db import get_redis, get_session
+from appointments_api.db import get_redis, get_session, get_transaction_hooks
 from appointments_api.enums import UserRole
 from appointments_api.models import Device, User
 from appointments_api.repositories.appointments import AppointmentRepository
@@ -41,6 +41,7 @@ from appointments_api.services.clock import Clock, SystemClock
 from appointments_api.services.idempotency import IdempotencyService
 from appointments_api.services.telemetry.ingestion import TelemetryIngestionService
 from appointments_api.services.tokens import TokenService
+from appointments_api.services.transaction_hooks import TransactionHooks
 from appointments_api.services.webhooks.dispatcher import WebhookDispatcher
 from appointments_api.telemetry_wiring import build_ingestion_service
 
@@ -50,6 +51,8 @@ from appointments_api.telemetry_wiring import build_ingestion_service
 SessionDep = Annotated[AsyncSession, Depends(get_session, scope="function")]
 RedisDep = Annotated[Redis, Depends(get_redis)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+# The same object get_session runs after COMMIT (on_commit) or after rollback (on_rollback).
+TransactionHooksDep = Annotated[TransactionHooks, Depends(get_transaction_hooks)]
 
 
 def get_user_repository(session: SessionDep) -> UserRepository:

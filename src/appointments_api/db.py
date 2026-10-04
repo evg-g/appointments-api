@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import (
 from starlette.requests import Request
 
 from appointments_api.config import Settings, get_settings
+from appointments_api.services.transaction_hooks import TransactionHooks
 
 
 def create_engine(settings: Settings | None = None) -> AsyncEngine:
@@ -37,16 +38,32 @@ def create_redis(settings: Settings | None = None) -> Redis:
     return client
 
 
+def get_transaction_hooks(request: Request) -> TransactionHooks:
+    """The request's ``TransactionHooks``, created on first use and shared for the request."""
+    hooks: TransactionHooks | None = getattr(request.state, "transaction_hooks", None)
+    if hooks is None:
+        hooks = TransactionHooks()
+        request.state.transaction_hooks = hooks
+    return hooks
+
+
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    """Yield a session, committing on success and rolling back on any error."""
+    """Yield a session, committing on success and rolling back on any error.
+
+    After the COMMIT succeeds the request's ``on_commit`` hooks run; after a rollback its
+    ``on_rollback`` hooks run (ADR 0017). A failing hook is logged and does not fail the request.
+    """
     maker: async_sessionmaker[AsyncSession] = request.app.state.sessionmaker
+    hooks = get_transaction_hooks(request)
     async with maker() as session:
         try:
             yield session
             await session.commit()
         except Exception:
             await session.rollback()
+            await hooks.run_rollback_hooks()
             raise
+    await hooks.run_commit_hooks()
 
 
 def get_redis(request: Request) -> Redis:
