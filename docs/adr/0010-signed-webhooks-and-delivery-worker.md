@@ -1,6 +1,7 @@
 # 10. Signed webhooks with a retrying delivery worker
 
-- Status: accepted
+- Status: accepted; the emission-timing consequence is superseded by ADR 0017 (events publish
+  after COMMIT)
 - Date: 2026-09-27
 
 ## Context
