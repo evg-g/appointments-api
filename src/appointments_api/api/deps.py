@@ -44,7 +44,10 @@ from appointments_api.services.tokens import TokenService
 from appointments_api.services.webhooks.dispatcher import WebhookDispatcher
 from appointments_api.telemetry_wiring import build_ingestion_service
 
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
+# scope="function": the commit in get_session's exit runs after the handler and BEFORE the response
+# is sent, so a failed COMMIT goes through the exception handlers instead of following a success
+# response (ADR 0017).
+SessionDep = Annotated[AsyncSession, Depends(get_session, scope="function")]
 RedisDep = Annotated[Redis, Depends(get_redis)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
