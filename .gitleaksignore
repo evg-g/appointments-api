@@ -16,5 +16,8 @@
 
 # tests/integration/test_commit_failure.py:37 — the same fake webhook test secret "0123456789abcdef",
 # copied into the AURORA-3 commit-failure tests. It signs nothing outside the test process. Flagged
-# by the generic-api-key rule on entropy alone; the value was replaced in a50c7f9.
+# by the generic-api-key rule on entropy alone; the value was replaced later on the same branch.
+# 52380ec is the commit on the PR branch; the rebase merge rewrote it as 103c04e on main, so both
+# fingerprints are listed (a rebase changes the SHA, and the fingerprint carries it).
 52380ec296e26e2a6ae13701064b1b611d74bd9e:tests/integration/test_commit_failure.py:generic-api-key:37
+103c04e8cd787fe0a2bc6c646562082989820287:tests/integration/test_commit_failure.py:generic-api-key:37
