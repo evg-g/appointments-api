@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.1.0](https://github.com/evg-g/appointments-api/compare/v1.0.1...v1.1.0) (2026-10-06)
+
+
+### Features
+
+* **appointments:** AURORA-2 AC1.data AC3.data record audit entry on cancel ([c22043a](https://github.com/evg-g/appointments-api/commit/c22043a9254ee3754c76bde9bef18ed1c2dfb3cb))
+* **appointments:** AURORA-3 AC2.api free the idempotency key when the booking commit fails ([d2e0c1d](https://github.com/evg-g/appointments-api/commit/d2e0c1db06dca3cb77bf66f056278e78cfa01357))
+* **webhooks:** AURORA-3 AC4.data publish webhook events after commit ([1433fb9](https://github.com/evg-g/appointments-api/commit/1433fb98cded71698a3b883cba61667d8295310c))
+
+
+### Bug Fixes
+
+* **ci:** ignore the rebased fake secret; unlink localhost URLs in README ([cc6d414](https://github.com/evg-g/appointments-api/commit/cc6d4149b938f82924803bbfde1d6cd854ce88cc))
+* **db:** AURORA-3 AC3.data AC1.api commit before the response ([103c04e](https://github.com/evg-g/appointments-api/commit/103c04e8cd787fe0a2bc6c646562082989820287))
+
+
+### Documentation
+
+* **audit:** ADRs for AURORA-2 ([95d100e](https://github.com/evg-g/appointments-api/commit/95d100ed7c7401b6bea8b8ae7ec1d4fa543519fa))
+* AURORA-3 catalog internal-error and mark ADR 0007/0010 timing superseded by ADR 0017 ([8b55668](https://github.com/evg-g/appointments-api/commit/8b5566801ffb39510893da8ed627f5503bb95a5d))
+* **db:** ADRs for AURORA-3 ([9119ae5](https://github.com/evg-g/appointments-api/commit/9119ae58932c86590fb83636f6ae98ba8906b7db))
+* stop the CI/CD gap note reading as "no pipeline" ([bf37443](https://github.com/evg-g/appointments-api/commit/bf37443ab2e74b4940bc0dfc1b94a0cddd7f9d17))
+
 ## [1.0.1](https://github.com/evg-g/appointments-api/compare/v1.0.0...v1.0.1) (2026-10-01)
 
 

@@ -1,6 +1,6 @@
 [project]
 name = "appointments-api"
-version = "1.0.1"
+version = "1.1.0"
 description = "Aurora Clinic appointment scheduling and cold-chain monitoring API"
 readme = "README.md"
 requires-python = ">=3.12"
