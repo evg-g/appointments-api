@@ -62,7 +62,7 @@ make test      # run the test suite
 make dev       # start the API on http://localhost:8000
 ```
 
-Then open http://localhost:8000/health/live.
+Then open `http://localhost:8000/health/live` in your browser.
 
 ## Try the API by hand
 
@@ -79,8 +79,8 @@ reserved `.test` TLD.
 
 | Tool | How | Notes |
 |---|---|---|
-| **Swagger UI** | http://localhost:8000/docs | Browse every endpoint and send requests from the browser. Run `POST /api/v1/auth/login`, copy `access_token`, click *Authorize*, and paste it (just the token, no `Bearer ` prefix). Protected endpoints then send it for you; they show a lock icon. |
-| **ReDoc** | http://localhost:8000/redoc | Read-only reference view of the same spec. |
+| **Swagger UI** | `http://localhost:8000/docs` | Browse every endpoint and send requests from the browser. Run `POST /api/v1/auth/login`, copy `access_token`, click *Authorize*, and paste it (just the token, no `Bearer ` prefix). Protected endpoints then send it for you; they show a lock icon. |
+| **ReDoc** | `http://localhost:8000/redoc` | Read-only reference view of the same spec. |
 | **`.http` files** | [`requests/`](requests) | The recommended way. Open in VS Code with the [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) extension (or a JetBrains IDE) and click *Send Request*. Send the login request first; later requests reuse its token automatically. See [`requests/README.md`](requests/README.md). |
 | **Postman** | *Import* → *Link* → `http://localhost:8000/openapi.json` (or the committed [`contracts/openapi.json`](contracts/openapi.json)) | Postman builds a collection from the spec. Call `POST /api/v1/auth/login`, then set *Authorization* → *Bearer Token* to the returned `access_token` on the collection. |
 
